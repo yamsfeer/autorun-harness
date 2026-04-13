@@ -1,0 +1,10 @@
+{
+  "name": "glm-1",
+  "authToken": "your-token-here",
+  "baseUrl": "https://open.bigmodel.cn/api/anthropic",
+  "model": "GLM-4.7",
+  "status": "available",
+  "lastUsed": null,
+  "rateLimitedAt": null,
+  "notes": "智谱 GLM-4.7 模型"
+}

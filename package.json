@@ -1,0 +1,37 @@
+{
+  "name": "autorun-harness",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "长期运行代理框架 - 自动化软件开发",
+  "main": "dist/index.js",
+  "bin": {
+    "autorun-harness": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "automation",
+    "claude",
+    "software-development"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.98",
+    "commander": "^12.0.0",
+    "chalk": "^4.1.2",
+    "ora": "^5.4.1",
+    "fs-extra": "^11.2.0",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
