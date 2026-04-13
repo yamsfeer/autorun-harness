@@ -1,20 +1,181 @@
-一些需求备忘点
+# autorun-harness
 
-开发之前,系统要求提供
+A long-running agent framework that automates software development using a three-agent architecture built on the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk).
 
-- PRD 文档, 由于 PRD 可能太长, 提供一份摘要添加到 CLAUDE.md, 持续存在
-- CLAUDE.md 要有文档索引
-  - 完整PRD 文档
-  - 数据契约文档,特别是前后端API
-  - 数据实体,数据库表结构
-  - UE 交互逻辑状态机
-  - 业务流程图 flowchart
-  - 设计系统 DESIGN.md
+Give it a PRD (or a plain-text description) and it will analyze requirements, generate a technical spec, break work into tasks, and then loop through implementation and quality evaluation — all without human intervention.
 
+## How It Works
 
-- 用 agent browser 替代 playwright 做测试
-- 要支持在多个 coding plan 账号间切换
-- 提供一个 skills 库,由 agent 判断是否要取用,例如提供支付相关的 skill,如果 task 是要开发支付模块,则安装,不要一次将所有可能的skill 都安装
-- 可选: tasks.json 和 progress.txt 用一个直观的方式展现,例如 linear 看板
-- 后续改进: failure.md 收集开发过程中错误,失败的情况,添加到 CLAUDE.md,保证后期不再犯同样错误,并给出收集报告
+```
+┌──────────────────────────────────────────────────────────┐
+│              Init Phase (runs once)                       │
+│                                                          │
+│   PRD / Text  →  Planner Agent  →  spec.md + tasks.json │
+│                                     + project docs       │
+└──────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────┐
+│              Run Phase (loops per task)                   │
+│                                                          │
+│   Pick next task  →  Generator Agent                     │
+│                          │                               │
+│                     Evaluator Agent                      │
+│                          │                               │
+│                    ┌─────┴──────┐                        │
+│                    │            │                        │
+│                   pass        fail                       │
+│                    │            │                        │
+│              completed    retry (≤ 3×)                   │
+│                              │                           │
+│                        needs_human                       │
+│                         (≥ 3 fails)                      │
+└──────────────────────────────────────────────────────────┘
+```
 
+**Three specialized agents collaborate:**
+
+| Agent | Role | Input | Output |
+|-------|------|-------|--------|
+| **Planner** | Requirement analysis, task decomposition | PRD document | `spec.md`, `tasks.json`, project docs |
+| **Generator** | Feature implementation | Task + spec | Code changes via file editing tools |
+| **Evaluator** | Acceptance testing, quality scoring | Task + code state | `evaluator_report.json` |
+
+## Features
+
+- **Two init modes** — `full` mode generates a complete doc suite (CLAUDE.md, DESIGN.md, API contracts, data models, flowcharts); `simple` mode skips docs and focuses on task decomposition
+- **Automated quality evaluation** — each task is scored across four dimensions (functionality 40%, code quality 25%, product depth 20%, visual design 15%) with a 0.75 pass threshold
+- **Automatic retry** — failed tasks cycle back to the Generator with evaluator feedback (up to 3 attempts before flagging for human review)
+- **Multi-provider support** — pool multiple AI providers (Anthropic, OpenAI-compatible endpoints) and auto-switch on rate limits (429) or usage caps
+- **Cost tracking** — token usage is recorded per agent and per task, with budget limits and warnings
+- **Failure analysis** — errors are collected into `failure.md` with pattern analysis and suggested solutions
+- **Graceful shutdown** — SIGTERM/SIGINT signals are caught so in-progress task state is preserved
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- An API key set via environment variable:
+  ```bash
+  export ANTHROPIC_AUTH_TOKEN="sk-ant-..."
+  # Optional: custom base URL and model
+  export ANTHROPIC_BASE_URL="https://api.anthropic.com"
+  export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+  ```
+
+### Install
+
+```bash
+git clone https://github.com/yamsfeer/autorun-harness.git
+cd autorun-harness
+npm install
+npm run build
+```
+
+### Usage
+
+**Initialize a project from a PRD:**
+
+```bash
+# Full mode — generates docs + spec + tasks
+node dist/index.js init ./my-project --prd ./PRD.md
+
+# Full mode with existing docs directory
+node dist/index.js init ./my-project --prd ./PRD.md --docs ./my-project/docs
+
+# Simple mode — just spec + tasks
+node dist/index.js init ./my-project --text "Build a todo app with CRUD operations" --mode simple
+```
+
+**Run the task loop:**
+
+```bash
+# Process up to 10 tasks (default)
+node dist/index.js run ./my-project
+
+# Limit to 5 tasks with a token budget
+node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
+```
+
+**Manage AI providers:**
+
+```bash
+# Add a provider
+node dist/index.js provider --add --name glm --token "your-token" --url "https://open.bigmodel.cn/api/anthropic" --model "GLM-4.7"
+
+# List providers
+node dist/index.js provider --list
+
+# Switch to a specific provider
+node dist/index.js provider --switch glm
+```
+
+## Project State
+
+Runtime state is stored in `<project-dir>/.harness/`:
+
+```
+.harness/
+├── spec.md                # Technical spec (generated by Planner)
+├── tasks.json             # Task list with status and acceptance criteria
+├── progress.txt           # Execution progress log
+├── costs.json             # Token usage records
+├── failure.md             # Error collection and pattern analysis
+├── logs/                  # Structured JSON logs
+└── reports/               # Evaluator reports per task/attempt
+    └── evaluator_report_<task-id>_<attempt>.json
+```
+
+## Task Lifecycle
+
+```
+pending → in_progress → completed
+                  ↘ needs_human (after ≥ 3 failed attempts)
+                  ↘ pending     (evaluation failed, retry with feedback)
+```
+
+## Architecture
+
+```
+src/
+├── index.ts                    # CLI entry point (init / run / provider commands)
+├── types/
+│   ├── index.ts                # Core types (Task, TaskList, EvaluatorReport, etc.)
+│   └── quality.ts              # Quality assurance types (Cost, Error, Provider, etc.)
+├── core/
+│   ├── orchestrator.ts         # Main orchestrator — coordinates the full pipeline
+│   ├── state-manager.ts        # Reads/writes .harness/ state files
+│   ├── evaluator.ts            # Evaluator agent wrapper
+│   ├── error-handler.ts        # Error classification, retry logic, provider switching
+│   ├── cost-tracker.ts         # Token usage tracking and budget enforcement
+│   ├── failure-collector.ts    # Error collection and pattern analysis
+│   ├── provider-manager.ts     # Multi-provider pool management
+│   ├── graceful-shutdown.ts    # SIGTERM/SIGINT handler
+│   └── playwright-tester.ts    # Playwright utility (for web app evaluation)
+├── agents/
+│   ├── loader.ts               # Loads agent prompts from markdown files
+│   └── index.ts                # Module exports
+└── commands/
+    ├── init.ts                 # init command implementation
+    ├── run.ts                  # run command implementation
+    └── provider.ts             # provider command implementation
+
+prompts/
+├── planner-full.md             # Planner prompt (full mode)
+├── planner-simple.md           # Planner prompt (simple mode)
+├── generator.md                # Generator prompt
+└── evaluator.md                # Evaluator prompt
+```
+
+## Development
+
+```bash
+npm run build          # Compile TypeScript
+npm run dev            # Watch mode
+npm run start          # Run the CLI
+```
+
+## License
+
+MIT
