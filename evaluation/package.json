@@ -1,0 +1,31 @@
+{
+  "name": "autorun-harness-evaluation",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Evaluation toolkit for autorun-harness framework",
+  "main": "dist/index.js",
+  "bin": {
+    "harness-eval": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "evaluation",
+    "metrics"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.0.0",
+    "chalk": "^4.1.2",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
