@@ -2,6 +2,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { createAgentLoader, AgentDefinition } from '../agents/index.js';
 import { Task, EvaluatorReport, AcceptanceCriterion, AcceptanceCriterionStatus } from '../types/index.js';
 import { StateManager } from './state-manager.js';
+import { createMessageHandler, MessageHandler } from './message-handler.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -13,11 +14,13 @@ export class Evaluator {
   private projectDir: string;
   private stateManager: StateManager;
   private agentLoader;
+  private messageHandler: MessageHandler;
 
   constructor(projectDir: string) {
     this.projectDir = projectDir;
     this.stateManager = new StateManager(projectDir);
     this.agentLoader = createAgentLoader();
+    this.messageHandler = createMessageHandler();
   }
 
   /**
@@ -38,6 +41,9 @@ export class Evaluator {
       const spec = await this.stateManager.loadSpec();
 
       // 准备用户输入
+      const reportFileName = `evaluator_report_${task.id}_${attempt}.json`;
+      const reportPath = `.harness/reports/${reportFileName}`;
+
       const userPrompt = `请评估以下任务的完成情况。
 
 ## 当前任务
@@ -58,22 +64,31 @@ ${spec}
 4. 如果是CLI应用，实际运行命令验证功能
 5. 如果失败，提供具体的修复建议
 
-请生成评估报告JSON文件，保存到：
-.harness/reports/evaluator_report_${task.id}_${attempt}.json
+## 重要：报告文件
+
+**必须**将评估报告保存到以下路径：
+\`${reportPath}\`
+
+文件名中的参数：
+- task_id = ${task.id}
+- attempt = ${attempt}
 
 报告必须包含：
 - report_id: 唯一ID
-- task_id: 任务ID
-- attempt: 尝试次数
+- task_id: "${task.id}"
+- attempt: ${attempt}
 - timestamp: 时间戳
 - overall_result: "pass" 或 "fail"
 - summary: 评估总结
 - criteria_results: 每个验收标准的详细结果
 - total_weighted_score: 加权总分
-- threshold: 通过阈值 (0.75)
+- threshold: 0.75
 - final_decision: "pass" 或 "fail"
 - feedback_for_generator: 给生成器的反馈
 `;
+
+      // 重置消息处理器
+      this.messageHandler.reset();
 
       // 调用评估器 Agent
       const queryResult = query({
@@ -89,34 +104,19 @@ ${spec}
 
       // 处理消息流
       for await (const message of queryResult) {
-        if (message.type === 'assistant') {
-          const content = message.message?.content;
-          if (Array.isArray(content)) {
-            const textContent = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
-              .join('\n');
-            if (textContent && textContent.includes('评估完成')) {
-              console.log('   ✅ 评估完成');
-            }
-          }
-        }
         if (message.type === 'result') {
           break;
+        } else {
+          this.messageHandler.handleMessage(message);
         }
       }
 
       // 读取生成的评估报告
-      const reportPath = path.join(
-        this.projectDir,
-        '.harness',
-        'reports',
-        `evaluator_report_${task.id}_${attempt}.json`
-      );
+      const fullReportPath = path.join(this.projectDir, reportPath);
 
       let report: EvaluatorReport;
       try {
-        const reportContent = await fs.readFile(reportPath, 'utf-8');
+        const reportContent = await fs.readFile(fullReportPath, 'utf-8');
         report = JSON.parse(reportContent) as EvaluatorReport;
         
         // 更新 tasks.json 中的 acceptance_criteria 状态

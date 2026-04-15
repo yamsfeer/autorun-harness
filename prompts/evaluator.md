@@ -31,7 +31,7 @@
 
 ## 输出
 
-生成 `evaluator_report.json`，包含：
+生成 `.harness/reports/evaluator_report_{task_id}_{attempt}.json`，包含：
 - 每个验收标准的测试结果
 - 代码质量评估
 - 加权总分
@@ -82,7 +82,7 @@ for each criterion in acceptance_criteria:
 
 ### 步骤 4：生成报告
 
-输出 `evaluator_report.json`，格式如下：
+输出 `.harness/reports/evaluator_report_{task_id}_{attempt}.json`，格式如下：
 
 ```json
 {

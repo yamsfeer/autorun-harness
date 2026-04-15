@@ -118,6 +118,10 @@ export class StateManager {
     const tasks = await this.loadTasks();
     const task = tasks.tasks.find((t) => t.id === taskId);
     if (task) {
+      // 确保 notes 数组存在
+      if (!task.notes) {
+        task.notes = [];
+      }
       task.notes.push(note);
       await this.saveTasks(tasks);
     }
@@ -156,9 +160,20 @@ ${entry.errors && entry.errors.length > 0 ? `错误：\n${entry.errors.map((e) =
 
   /**
    * 获取下一个待处理任务
+   * 优先恢复 in_progress 状态的任务（上次中断的任务）
    */
   async getNextTask(): Promise<Task | null> {
     const tasks = await this.loadTasks();
+
+    // 优先返回 in_progress 状态的任务（恢复中断的任务）
+    const inProgressTask = tasks.tasks.find(
+      (t) => t.status === 'in_progress' && this.areDependenciesMet(t, tasks)
+    );
+    if (inProgressTask) {
+      return inProgressTask;
+    }
+
+    // 然后查找 pending 状态的任务
     return (
       tasks.tasks.find(
         (t) => t.status === 'pending' && this.areDependenciesMet(t, tasks)

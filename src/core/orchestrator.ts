@@ -8,6 +8,7 @@ import { CostTracker, createCostTracker } from './cost-tracker.js';
 import { FailureCollector, createFailureCollector } from './failure-collector.js';
 import { getProviderManager, ProviderManager } from './provider-manager.js';
 import { getGracefulShutdown } from './graceful-shutdown.js';
+import { createMessageHandler, MessageHandler } from './message-handler.js';
 import {
   parseErrorType,
   shouldSwitchProvider,
@@ -41,6 +42,7 @@ export class Orchestrator {
   private costTracker: CostTracker;
   private failureCollector: FailureCollector;
   private providerManager: ProviderManager;
+  private messageHandler: MessageHandler;
 
   // 当前执行状态（用于中断时保存）
   private currentTask: Task | null = null;
@@ -58,6 +60,7 @@ export class Orchestrator {
     this.costTracker = createCostTracker(this.harnessDir);
     this.failureCollector = createFailureCollector(this.harnessDir);
     this.providerManager = getProviderManager();
+    this.messageHandler = createMessageHandler();
   }
 
   /**
@@ -146,35 +149,26 @@ export class Orchestrator {
         },
       });
 
+      // 重置消息处理器
+      this.messageHandler.reset();
+
       // 处理消息流
       for await (const message of queryResult) {
-        if (message.type === 'assistant') {
-          const content = message.message?.content;
-          if (Array.isArray(content)) {
-            const textContent = content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
-              .join('\n');
-            if (textContent && textContent.trim().length < 500) {
-              console.log('📋', textContent.trim());
-            }
-          }
-        } else if (message.type === 'result') {
+        if (message.type === 'result') {
+          const { success, usage } = this.messageHandler.handleResult(message);
+
           // 记录 token 使用
-          if ('usage' in message) {
-            const usage = (message as any).usage;
-            if (usage) {
-              await this.costTracker.record({
-                sessionId: this.getSessionId(),
-                agent: 'planner',
-                model: this.providerManager.getCurrentProvider()?.model || 'unknown',
-                inputTokens: usage.input_tokens || 0,
-                outputTokens: usage.output_tokens || 0,
-              });
-            }
+          if (usage) {
+            await this.costTracker.record({
+              sessionId: this.getSessionId(),
+              agent: 'planner',
+              model: this.providerManager.getCurrentProvider()?.model || 'unknown',
+              inputTokens: usage.input_tokens || 0,
+              outputTokens: usage.output_tokens || 0,
+            });
           }
 
-          if ('subtype' in message && message.subtype === 'success') {
+          if (success) {
             this.currentPhase = ''; // 清除阶段标记
             this.logger.info('orchestrator', '初始化完成');
             console.log('\n✅ 初始化完成！');
@@ -193,6 +187,8 @@ export class Orchestrator {
             console.error('❌ 初始化失败');
           }
           break;
+        } else {
+          this.messageHandler.handleMessage(message);
         }
       }
     } catch (error) {
@@ -639,6 +635,10 @@ ${spec}
 `;
 
     this.logger.debug('orchestrator', '开始执行生成器', { taskId: task.id });
+    console.log('   🔧 开始实现...');
+
+    // 重置消息处理器
+    this.messageHandler.reset();
 
     const queryResult = query({
       prompt: userPrompt,
@@ -654,21 +654,22 @@ ${spec}
     // 处理消息流
     for await (const message of queryResult) {
       if (message.type === 'result') {
+        const { usage } = this.messageHandler.handleResult(message);
+
         // 记录 token 使用
-        if ('usage' in message) {
-          const usage = (message as any).usage;
-          if (usage) {
-            await this.costTracker.record({
-              sessionId: this.getSessionId(),
-              taskId: task.id,
-              agent: 'generator',
-              model: this.providerManager.getCurrentProvider()?.model || 'unknown',
-              inputTokens: usage.input_tokens || 0,
-              outputTokens: usage.output_tokens || 0,
-            });
-          }
+        if (usage) {
+          await this.costTracker.record({
+            sessionId: this.getSessionId(),
+            taskId: task.id,
+            agent: 'generator',
+            model: this.providerManager.getCurrentProvider()?.model || 'unknown',
+            inputTokens: usage.input_tokens || 0,
+            outputTokens: usage.output_tokens || 0,
+          });
         }
         break;
+      } else {
+        this.messageHandler.handleMessage(message);
       }
     }
   }
