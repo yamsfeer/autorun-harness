@@ -282,6 +282,10 @@ Phase 4 (持续优化)
 - [ ] 截图存储和管理
 - [ ] 测试数据准备和清理
 
+### 评估工具
+
+评估工具已独立为 [autorun-harness-eval](https://github.com/yamsfeer/autorun-harness-eval)，通过文件协议（`.harness/` 目录）与主项目交互。
+
 ### Agent SDK 集成
 - [ ] Claude Agent SDK 调用方式
 - [ ] 上下文管理（压缩/重置）

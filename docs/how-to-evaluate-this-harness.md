@@ -2,6 +2,8 @@
 
 > 通过两级指标量化评估框架能力。改进前后各跑一次，通过指标差异验证改进效果。
 
+评估工具已独立为 [autorun-harness-eval](https://github.com/yamsfeer/autorun-harness-eval)，通过文件协议（`.harness/` 目录下的 tasks.json、costs.json、reports/*.json）与主项目交互。
+
 ---
 
 ## 第一层：任务级指标

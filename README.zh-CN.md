@@ -170,6 +170,12 @@ prompts/
 └── evaluator.md                # 评估器提示词
 ```
 
+## 评估工具
+
+评估工具已独立为单独项目：[autorun-harness-eval](https://github.com/yamsfeer/autorun-harness-eval)
+
+它读取 `.harness/` 状态文件并执行自动化检查（构建、测试、lint、运行时），对框架输出进行评分。详见评估项目 README。
+
 ## 开发
 
 ```bash

@@ -4,7 +4,3 @@ dist/
 *.d.ts.map
 .harness/
 test-projects/
-
-# Evaluation sub-project
-evaluation/node_modules/
-evaluation/dist/

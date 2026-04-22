@@ -128,3 +128,7 @@ pending → in_progress → completed
 
 - **CLI 应用测试**：评估器使用 Bash 命令直接运行程序验证功能
 - **Web 应用测试**：评估器使用 Playwright 进行浏览器自动化测试
+
+## 评估工具
+
+框架评估工具已独立为 [autorun-harness-eval](https://github.com/yamsfeer/autorun-harness-eval)。它通过读取 `.harness/` 目录下的文件协议（tasks.json、costs.json、reports/*.json）对框架输出进行评分，与主项目无代码级依赖。

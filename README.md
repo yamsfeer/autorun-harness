@@ -168,6 +168,12 @@ prompts/
 └── evaluator.md                # Evaluator prompt
 ```
 
+## Evaluation
+
+The evaluation toolkit has been extracted into a separate project: [autorun-harness-eval](https://github.com/yamsfeer/autorun-harness-eval)
+
+It reads `.harness/` state files and runs automated checks (build, test, lint, runtime) to score the framework's output. See the eval project's README for usage.
+
 ## Development
 
 ```bash
