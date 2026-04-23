@@ -76,15 +76,6 @@ export async function providerCommand(options: ProviderCommandOptions): Promise<
 
     console.log(`✅ 已切换到提供商: ${result.newProvider}`);
     manager.printStatus();
-
-    // 显示环境变量设置命令
-    const env = manager.getEnvConfig();
-    if (env) {
-      console.log('\n当前环境变量配置:');
-      console.log(`export ANTHROPIC_AUTH_TOKEN="${env.ANTHROPIC_AUTH_TOKEN}"`);
-      console.log(`export ANTHROPIC_BASE_URL="${env.ANTHROPIC_BASE_URL}"`);
-      console.log(`export ANTHROPIC_MODEL="${env.ANTHROPIC_MODEL}"`);
-    }
     return;
   }
 

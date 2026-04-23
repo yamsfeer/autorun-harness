@@ -424,18 +424,11 @@ ${docList}
    * 打印当前提供商状态（简化版）
    */
   private printProviderStatus(): void {
-    const usingSystemEnv = this.providerManager.hasSystemEnvConfig() && !this.providerManager.isUsingProviderConfig();
-
-    if (usingSystemEnv) {
-      const sysConfig = this.providerManager.getSystemEnvConfig();
-      console.log(`📡 使用系统环境变量 (${sysConfig?.ANTHROPIC_MODEL || 'default model'})`);
+    const current = this.providerManager.getCurrentProvider();
+    if (current) {
+      console.log(`📡 使用提供商配置: ${current.name} (${current.model})`);
     } else {
-      const current = this.providerManager.getCurrentProvider();
-      if (current) {
-        console.log(`📡 使用提供商配置: ${current.name} (${current.model})`);
-      } else {
-        console.log('📡 未配置 API，请设置环境变量或添加提供商');
-      }
+      console.log('📡 未配置提供商，请在 ~/.config/autorun-harness/providers/ 添加配置');
     }
   }
 
@@ -469,9 +462,6 @@ ${docList}
       : await this.providerManager.handleUsageLimit();
 
     if (result.success) {
-      // 设置使用 provider 配置
-      this.providerManager.setUseProviderConfig(true);
-
       // 应用新的提供商配置
       await this.applyCurrentProvider();
 

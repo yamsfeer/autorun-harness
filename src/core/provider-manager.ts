@@ -21,8 +21,6 @@ export class ProviderManager {
   private currentProviderName: string = '';
   private totalSwitches: number = 0;
   private lastSwitchAt?: string;
-  private useProviderConfig: boolean = false; // 是否强制使用 provider 配置（切换后为 true）
-
   constructor() {
     this.configDir = GLOBAL_CONFIG_DIR;
   }
@@ -351,51 +349,10 @@ export class ProviderManager {
   }
 
   /**
-   * 检查系统环境变量是否配置了 API
-   */
-  hasSystemEnvConfig(): boolean {
-    return !!(
-      process.env.ANTHROPIC_AUTH_TOKEN ||
-      process.env.CLAUDE_CODE_AUTH_TOKEN
-    );
-  }
-
-  /**
-   * 获取系统环境变量配置
-   */
-  getSystemEnvConfig(): { ANTHROPIC_AUTH_TOKEN: string; ANTHROPIC_BASE_URL: string; ANTHROPIC_MODEL: string } | null {
-    const authToken = process.env.ANTHROPIC_AUTH_TOKEN || process.env.CLAUDE_CODE_AUTH_TOKEN;
-    if (!authToken) return null;
-
-    return {
-      ANTHROPIC_AUTH_TOKEN: authToken,
-      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
-      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
-    };
-  }
-
-  /**
-   * 获取环境变量配置（优先系统环境变量，其次 provider 配置）
-   * 但如果已切换到 provider 配置（useProviderConfig = true），则使用 provider 配置
+   * 获取当前提供商的连接配置
+   * 唯一事实来源：provider 配置文件
    */
   getEnvConfig(): { ANTHROPIC_AUTH_TOKEN: string; ANTHROPIC_BASE_URL: string; ANTHROPIC_MODEL: string } | null {
-    // 如果已经切换到 provider 配置，优先使用 provider
-    if (this.useProviderConfig) {
-      const provider = this.getCurrentProvider();
-      if (provider) {
-        return {
-          ANTHROPIC_AUTH_TOKEN: provider.authToken,
-          ANTHROPIC_BASE_URL: provider.baseUrl,
-          ANTHROPIC_MODEL: provider.model,
-        };
-      }
-    }
-
-    // 优先使用系统环境变量
-    const systemConfig = this.getSystemEnvConfig();
-    if (systemConfig) return systemConfig;
-
-    // 其次使用 provider 配置
     const provider = this.getCurrentProvider();
     if (!provider) return null;
 
@@ -407,34 +364,15 @@ export class ProviderManager {
   }
 
   /**
-   * 强制使用 provider 配置（切换后调用）
-   */
-  setUseProviderConfig(value: boolean): void {
-    this.useProviderConfig = value;
-  }
-
-  /**
-   * 检查是否正在使用 provider 配置
-   */
-  isUsingProviderConfig(): boolean {
-    return this.useProviderConfig;
-  }
-
-  /**
    * 打印当前状态
    */
   printStatus(): void {
     const providers = this.getAllProviders();
     const current = this.getCurrentProvider();
-    const usingSystemEnv = this.hasSystemEnvConfig() && !this.useProviderConfig;
-
     console.log('\n📡 服务提供商状态');
     console.log(`   配置目录: ${this.configDir}`);
 
-    if (usingSystemEnv) {
-      const sysConfig = this.getSystemEnvConfig();
-      console.log(`   当前: 系统环境变量 (${sysConfig?.ANTHROPIC_MODEL || '-'})`);
-    } else if (current) {
+    if (current) {
       console.log(`   当前: ${current.name} (${current.model})`);
     } else {
       console.log(`   当前: 未设置`);
@@ -445,7 +383,7 @@ export class ProviderManager {
     if (providers.length > 0) {
       console.log('\n   备用提供商:');
       for (const p of providers) {
-        const isCurrent = p.name === this.currentProviderName && this.useProviderConfig;
+        const isCurrent = p.name === this.currentProviderName;
         const statusIcon = {
           'active': '✅',
           'available': '🟢',
