@@ -156,7 +156,13 @@ export function parseErrorType(error: unknown): ErrorType {
     if (message.includes('429') || message.includes('rate limit') || message.includes('too many requests')) {
       return 'rate_limit';
     }
-    if (message.includes('usage limit') || message.includes('quota exceeded') || message.includes('monthly limit')) {
+    if (message.includes('usage limit') || message.includes('quota exceeded') || message.includes('monthly limit')
+        || message.includes('credit limit') || message.includes('billing') || message.includes('payment')) {
+      return 'usage_limit';
+    }
+    // 上下文长度/Token 上限（部分提供商返回此类错误，切换模型可能解决）
+    if (message.includes('context length') || message.includes('token limit') || message.includes('max tokens')
+        || message.includes('too long') || message.includes('exceeds maximum')) {
       return 'usage_limit';
     }
 

@@ -207,11 +207,12 @@ export function createMessageHandler(config: MessageHandlerConfig = {}) {
   /**
    * 处理结果消息
    */
-  function handleResult(message: any): { success: boolean; usage?: any } {
+  function handleResult(message: any): { success: boolean; usage?: any; error?: string } {
     const success = message.subtype === 'success';
     const usage = message.usage;
+    const error = message.error?.message || message.error || (success ? undefined : '未知错误');
 
-    return { success, usage };
+    return { success, usage, error };
   }
 
   /**

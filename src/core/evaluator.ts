@@ -103,12 +103,23 @@ ${spec}
       });
 
       // 处理消息流
+      let lastResult: { success: boolean; usage?: any; error?: string } | null = null;
+
       for await (const message of queryResult) {
         if (message.type === 'result') {
+          lastResult = this.messageHandler.handleResult(message);
           break;
         } else {
           this.messageHandler.handleMessage(message);
         }
+      }
+
+      // 检查 Agent 执行结果
+      if (!lastResult) {
+        throw new Error('评估器执行异常：未收到结果消息');
+      }
+      if (!lastResult.success) {
+        throw new Error(lastResult.error || '评估器执行失败');
       }
 
       // 读取生成的评估报告
@@ -123,9 +134,9 @@ ${spec}
         await this.updateTaskAcceptanceStatus(task.id, report);
         
       } catch (error) {
-        console.log('   ⚠️  未找到评估报告，生成默认报告');
-        // 如果没有生成报告，返回一个默认的成功报告
-        report = this.createDefaultReport(task, attempt, 'pass', '评估完成（未生成详细报告）');
+        console.log('   ⚠️  未找到评估报告，生成默认失败报告');
+        // 如果没有生成报告，视为评估失败
+        report = this.createDefaultReport(task, attempt, 'fail', '评估完成但未生成报告，视为失败');
         await this.saveReport(report);
       }
 

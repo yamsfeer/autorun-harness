@@ -642,25 +642,35 @@ ${spec}
     });
 
     // 处理消息流
+    let lastResult: { success: boolean; usage?: any; error?: string } | null = null;
+
     for await (const message of queryResult) {
       if (message.type === 'result') {
-        const { usage } = this.messageHandler.handleResult(message);
+        lastResult = this.messageHandler.handleResult(message);
 
         // 记录 token 使用
-        if (usage) {
+        if (lastResult.usage) {
           await this.costTracker.record({
             sessionId: this.getSessionId(),
             taskId: task.id,
             agent: 'generator',
             model: this.providerManager.getCurrentProvider()?.model || 'unknown',
-            inputTokens: usage.input_tokens || 0,
-            outputTokens: usage.output_tokens || 0,
+            inputTokens: lastResult.usage.input_tokens || 0,
+            outputTokens: lastResult.usage.output_tokens || 0,
           });
         }
         break;
       } else {
         this.messageHandler.handleMessage(message);
       }
+    }
+
+    // 检查 Agent 执行结果：失败时抛出错误以触发 provider 切换
+    if (!lastResult) {
+      throw new Error('Agent 执行异常：未收到结果消息，可能是请求超时或被中断');
+    }
+    if (!lastResult.success) {
+      throw new Error(lastResult.error || 'Agent 执行失败');
     }
   }
 
