@@ -81,8 +81,5 @@ export async function providerCommand(options: ProviderCommandOptions): Promise<
 
   // 默认：显示状态
   manager.printStatus();
-
-  // 提示配置目录
-  console.log(`\n💡 配置目录: ${manager.getConfigDir()}`);
-  console.log('   每个提供商一个 JSON 文件，例如: glm-1.json');
+  console.log(`  配置目录: ${manager.getConfigDir()}`);
 }

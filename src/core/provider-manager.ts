@@ -34,7 +34,7 @@ export class ProviderManager {
 
       // 读取所有 .json 文件
       const files = await fs.readdir(this.configDir);
-      const jsonFiles = files.filter(f => f.endsWith('.json'));
+      const jsonFiles = files.filter(f => f.endsWith('.json') && !f.startsWith('.'));
 
       for (const file of jsonFiles) {
         try {
@@ -369,30 +369,28 @@ export class ProviderManager {
   printStatus(): void {
     const providers = this.getAllProviders();
     const current = this.getCurrentProvider();
-    console.log('\n📡 服务提供商状态');
-    console.log(`   配置目录: ${this.configDir}`);
 
-    if (current) {
-      console.log(`   当前: ${current.name} (${current.model})`);
-    } else {
-      console.log(`   当前: 未设置`);
+    console.log('');
+    if (providers.length === 0) {
+      console.log('  尚未配置任何提供商');
+      console.log(`  运行 autorun-harness provider --add 添加`);
+      return;
     }
 
-    console.log(`   切换次数: ${this.totalSwitches}`);
+    // 按优先级排序：active 在最前，然后 available，最后 rate_limited/unavailable
+    const statusOrder: Record<string, number> = { active: 0, available: 1, rate_limited: 2, unavailable: 3 };
+    const sorted = [...providers].sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
 
-    if (providers.length > 0) {
-      console.log('\n   备用提供商:');
-      for (const p of providers) {
-        const isCurrent = p.name === this.currentProviderName;
-        const statusIcon = {
-          'active': '✅',
-          'available': '🟢',
-          'rate_limited': '🔴',
-          'unavailable': '⚫',
-        }[p.status];
+    for (const p of sorted) {
+      const isCurrent = p.name === this.currentProviderName;
+      const label = {
+        'active':       '✅ 当前使用',
+        'available':    '🟢 可用',
+        'rate_limited': '🔴 频率受限',
+        'unavailable':  '⚫ 不可用',
+      }[p.status] || '⚫ 未知';
 
-        console.log(`   ${isCurrent ? '→' : ' '} ${p.name}: ${statusIcon} ${p.status} (${p.model})`);
-      }
+      console.log(`  ${isCurrent ? '→' : ' '} ${p.name}  ${label}  ${p.model}`);
     }
   }
 
