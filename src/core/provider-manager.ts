@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { AIProvider, ProviderConfig, ProviderStatus, SwitchResult } from '../types/quality.js';
+import { AIProvider, ProviderStaticConfig, ProviderRuntimeState, ProviderStateFile, ProviderStatus, SwitchResult } from '../types/quality.js';
 
 /**
  * 全局配置目录
@@ -11,16 +11,22 @@ const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.config', 'autorun-harness', 
 /**
  * 多服务提供商管理器
  * 管理多个 AI 服务提供商配置，支持自动切换
- * 
- * 配置路径：~/.config/autorun-harness/providers/*.json
- * 每个提供商一个独立的 JSON 文件
+ *
+ * 静态配置路径：~/.config/autorun-harness/providers/*.json（每个提供商一个文件）
+ * 运行时状态：~/.config/autorun-harness/providers/.state.json
  */
 export class ProviderManager {
   private configDir: string;
   private providers: Map<string, AIProvider> = new Map();
+  private providerStates: Map<string, ProviderRuntimeState> = new Map();
   private currentProviderName: string = '';
   private totalSwitches: number = 0;
   private lastSwitchAt?: string;
+
+  // 冷却期常量
+  private static readonly RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;     // 1 小时
+  private static readonly UNAVAILABLE_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 小时
+
   constructor() {
     this.configDir = GLOBAL_CONFIG_DIR;
   }
@@ -32,7 +38,7 @@ export class ProviderManager {
     try {
       await fs.mkdir(this.configDir, { recursive: true });
 
-      // 读取所有 .json 文件
+      // 1. 加载静态配置
       const files = await fs.readdir(this.configDir);
       const jsonFiles = files.filter(f => f.endsWith('.json') && !f.startsWith('.'));
 
@@ -40,21 +46,47 @@ export class ProviderManager {
         try {
           const filePath = path.join(this.configDir, file);
           const content = await fs.readFile(filePath, 'utf-8');
-          const provider = JSON.parse(content) as AIProvider;
+          const raw = JSON.parse(content);
 
-          // 文件名作为默认 name（如果没有设置）
-          if (!provider.name) {
-            provider.name = path.basename(file, '.json');
+          const config = raw as ProviderStaticConfig;
+          if (!config.name) {
+            config.name = path.basename(file, '.json');
           }
 
-          this.providers.set(provider.name, provider);
+          // 先以 available 默认值创建，后续从 .state.json 覆盖
+          this.providers.set(config.name, {
+            ...config,
+            status: 'available',
+          });
         } catch (e) {
           console.warn(`⚠️ 无法加载提供商配置: ${file}`);
         }
       }
 
-      // 加载状态文件
+      // 2. 加载运行时状态
       await this.loadState();
+
+      // 3. 合并运行时状态到 provider 对象
+      for (const [name, state] of this.providerStates) {
+        const provider = this.providers.get(name);
+        if (provider) {
+          provider.status = state.status;
+          provider.lastUsed = state.lastUsed;
+          provider.rateLimitedAt = state.rateLimitedAt;
+          provider.unavailableAt = state.unavailableAt;
+        }
+      }
+
+      // 4. 恢复冷却期已过的 provider
+      this.checkRecovery();
+
+      // 5. 持久化恢复变更
+      await this.saveState();
+
+      // 6. 清理旧 provider 文件中的运行时字段
+      for (const provider of this.providers.values()) {
+        await this.saveProviderFile(provider);
+      }
 
     } catch (error) {
       console.warn('⚠️ 无法初始化提供商管理器:', error);
@@ -62,16 +94,24 @@ export class ProviderManager {
   }
 
   /**
-   * 加载状态文件（当前选中的提供商）
+   * 加载状态文件
    */
   private async loadState(): Promise<void> {
     try {
       const statePath = path.join(this.configDir, '.state.json');
       const content = await fs.readFile(statePath, 'utf-8');
-      const state = JSON.parse(content);
+      const state = JSON.parse(content) as ProviderStateFile;
+
       this.currentProviderName = state.currentProvider || '';
       this.totalSwitches = state.totalSwitches || 0;
       this.lastSwitchAt = state.lastSwitchAt;
+
+      // 加载 per-provider 运行时状态
+      if (state.providers) {
+        for (const [name, providerState] of Object.entries(state.providers)) {
+          this.providerStates.set(name, providerState);
+        }
+      }
     } catch {
       // 状态文件不存在，选择第一个可用的提供商
       const available = this.getAvailableProviders();
@@ -82,19 +122,60 @@ export class ProviderManager {
   }
 
   /**
-   * 保存状态文件
+   * 保存状态文件（含 per-provider 运行时状态）
    */
   private async saveState(): Promise<void> {
     const statePath = path.join(this.configDir, '.state.json');
+
+    const providers: Record<string, ProviderRuntimeState> = {};
+    for (const [name, provider] of this.providers) {
+      providers[name] = {
+        status: provider.status,
+        lastUsed: provider.lastUsed,
+        rateLimitedAt: provider.rateLimitedAt,
+        unavailableAt: provider.unavailableAt,
+      };
+    }
+
     await fs.writeFile(
       statePath,
       JSON.stringify({
         currentProvider: this.currentProviderName,
         totalSwitches: this.totalSwitches,
         lastSwitchAt: this.lastSwitchAt,
+        providers,
       }, null, 2),
       'utf-8'
     );
+  }
+
+  /**
+   * 检查所有 provider 的冷却期，恢复已过期的 provider
+ * 返回恢复的数量
+   */
+  checkRecovery(): number {
+    let recovered = 0;
+    const now = Date.now();
+
+    for (const provider of this.providers.values()) {
+      if (provider.status === 'rate_limited' && provider.rateLimitedAt) {
+        const elapsed = now - new Date(provider.rateLimitedAt).getTime();
+        if (elapsed >= ProviderManager.RATE_LIMIT_COOLDOWN_MS) {
+          provider.status = 'available';
+          provider.rateLimitedAt = undefined;
+          recovered++;
+        }
+      } else if (provider.status === 'unavailable' && provider.unavailableAt) {
+        const elapsed = now - new Date(provider.unavailableAt).getTime();
+        if (elapsed >= ProviderManager.UNAVAILABLE_COOLDOWN_MS) {
+          provider.status = 'available';
+          provider.unavailableAt = undefined;
+          recovered++;
+        }
+      }
+    }
+
+    return recovered;
   }
 
   /**
@@ -116,6 +197,7 @@ export class ProviderManager {
    * 获取可用的提供商（status 为 available 或 active）
    */
   getAvailableProviders(): AIProvider[] {
+    this.checkRecovery();
     return Array.from(this.providers.values()).filter(p =>
       p.status === 'available' || p.status === 'active'
     );
@@ -124,27 +206,35 @@ export class ProviderManager {
   /**
    * 添加或更新提供商
    */
-  async addProvider(provider: Omit<AIProvider, 'status'>): Promise<void> {
+  async addProvider(config: ProviderStaticConfig): Promise<void> {
     const newProvider: AIProvider = {
-      ...provider,
+      ...config,
       status: 'available',
       lastUsed: new Date().toISOString(),
     };
 
-    // 保存到单独的文件
-    const fileName = `${provider.name}.json`;
+    // 只保存静态配置到 provider 文件
+    const staticConfig: ProviderStaticConfig = {
+      name: config.name,
+      authToken: config.authToken,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      notes: config.notes,
+    };
+    const fileName = `${config.name}.json`;
     const filePath = path.join(this.configDir, fileName);
-    await fs.writeFile(filePath, JSON.stringify(newProvider, null, 2), 'utf-8');
+    await fs.writeFile(filePath, JSON.stringify(staticConfig, null, 2), 'utf-8');
 
     // 更新内存
-    this.providers.set(provider.name, newProvider);
+    this.providers.set(config.name, newProvider);
 
     // 如果没有当前提供商，设置为第一个
     if (!this.currentProviderName) {
-      this.currentProviderName = provider.name;
+      this.currentProviderName = config.name;
       newProvider.status = 'active';
-      await this.saveState();
     }
+
+    await this.saveState();
   }
 
   /**
@@ -155,7 +245,6 @@ export class ProviderManager {
       return false;
     }
 
-    // 不能删除当前正在使用的
     if (this.currentProviderName === name) {
       throw new Error('无法删除正在使用的提供商，请先切换到其他提供商');
     }
@@ -163,13 +252,17 @@ export class ProviderManager {
     const filePath = path.join(this.configDir, `${name}.json`);
     await fs.unlink(filePath);
     this.providers.delete(name);
+    this.providerStates.delete(name);
+    await this.saveState();
     return true;
   }
 
   /**
    * 切换到下一个可用提供商
+ * @param reason 切换原因
+ * @param statusToSet 当前 provider 应标记的状态
    */
-  async switchToNext(reason: string): Promise<SwitchResult> {
+  async switchToNext(reason: string, statusToSet: ProviderStatus = 'rate_limited'): Promise<SwitchResult> {
     if (this.providers.size === 0) {
       return {
         success: false,
@@ -181,20 +274,28 @@ export class ProviderManager {
     const currentProvider = this.getCurrentProvider();
     const previousName = currentProvider?.name;
 
-    // 标记当前提供商为 rate_limited
+    // 根据调用方指定的状态标记当前 provider
     if (currentProvider) {
-      currentProvider.status = 'rate_limited';
-      currentProvider.rateLimitedAt = new Date().toISOString();
-      await this.saveProviderFile(currentProvider);
+      currentProvider.status = statusToSet;
+      if (statusToSet === 'rate_limited') {
+        currentProvider.rateLimitedAt = new Date().toISOString();
+      } else if (statusToSet === 'unavailable') {
+        currentProvider.unavailableAt = new Date().toISOString();
+      }
     }
 
-    // 查找下一个可用的提供商
+    // 搜索前先检查恢复
+    this.checkRecovery();
+
+    // 保存状态（当前 provider 的新状态 + 可能的恢复变更）
+    await this.saveState();
+
+    // 查找下一个可用的提供商（round-robin）
     const providerList = Array.from(this.providers.values());
     const currentIndex = providerList.findIndex(p => p.name === this.currentProviderName);
 
     let nextProvider: AIProvider | null = null;
 
-    // 从当前索引之后查找
     for (let i = 1; i <= providerList.length; i++) {
       const nextIndex = (currentIndex + i) % providerList.length;
       const candidate = providerList[nextIndex];
@@ -202,22 +303,6 @@ export class ProviderManager {
       if (candidate.status === 'available' || candidate.status === 'active') {
         nextProvider = candidate;
         break;
-      }
-    }
-
-    // 如果没找到，尝试使用之前被限制但现在可能已恢复的
-    if (!nextProvider) {
-      for (const provider of providerList) {
-        if (provider.status === 'rate_limited' && provider.rateLimitedAt) {
-          const limitedTime = new Date(provider.rateLimitedAt).getTime();
-          const hoursPassed = (Date.now() - limitedTime) / (1000 * 60 * 60);
-
-          if (hoursPassed >= 1) {
-            nextProvider = provider;
-            nextProvider.status = 'available';
-            break;
-          }
-        }
       }
     }
 
@@ -237,7 +322,6 @@ export class ProviderManager {
     this.lastSwitchAt = new Date().toISOString();
     this.totalSwitches += 1;
 
-    await this.saveProviderFile(nextProvider);
     await this.saveState();
 
     return {
@@ -249,22 +333,17 @@ export class ProviderManager {
   }
 
   /**
-   * 标记当前提供商为限制状态并切换
+   * 标记当前提供商为频率限制状态并切换
    */
   async handleRateLimit(): Promise<SwitchResult> {
-    return this.switchToNext('遇到频率限制 (429)');
+    return this.switchToNext('遇到频率限制 (429)', 'rate_limited');
   }
 
   /**
    * 标记当前提供商为用量限制状态并切换
    */
   async handleUsageLimit(): Promise<SwitchResult> {
-    const current = this.getCurrentProvider();
-    if (current) {
-      current.status = 'unavailable';
-      await this.saveProviderFile(current);
-    }
-    return this.switchToNext('达到用量限制');
+    return this.switchToNext('达到用量限制', 'unavailable');
   }
 
   /**
@@ -286,7 +365,6 @@ export class ProviderManager {
     // 重置之前的 active 状态
     if (previousProvider && previousProvider.status === 'active') {
       previousProvider.status = 'available';
-      await this.saveProviderFile(previousProvider);
     }
 
     // 设置新的 active
@@ -296,7 +374,6 @@ export class ProviderManager {
     this.lastSwitchAt = new Date().toISOString();
     this.totalSwitches += 1;
 
-    await this.saveProviderFile(target);
     await this.saveState();
 
     return {
@@ -308,11 +385,18 @@ export class ProviderManager {
   }
 
   /**
-   * 保存单个提供商文件
+   * 保存单个提供商文件（只保存静态配置）
    */
   private async saveProviderFile(provider: AIProvider): Promise<void> {
+    const staticConfig: ProviderStaticConfig = {
+      name: provider.name,
+      authToken: provider.authToken,
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      notes: provider.notes,
+    };
     const filePath = path.join(this.configDir, `${provider.name}.json`);
-    await fs.writeFile(filePath, JSON.stringify(provider, null, 2), 'utf-8');
+    await fs.writeFile(filePath, JSON.stringify(staticConfig, null, 2), 'utf-8');
   }
 
   /**
@@ -330,8 +414,7 @@ export class ProviderManager {
   "name": "openai",
   "authToken": "your-token",
   "baseUrl": "https://api.openai.com/v1",
-  "model": "gpt-4",
-  "status": "available"
+  "model": "gpt-4"
 }
 
 当前提供商状态:
@@ -340,7 +423,12 @@ export class ProviderManager {
     for (const p of providers) {
       instructions += `  - ${p.name}: ${p.status}`;
       if (p.rateLimitedAt) {
-        instructions += ` (受限时间: ${p.rateLimitedAt})`;
+        const recoverAt = new Date(new Date(p.rateLimitedAt).getTime() + ProviderManager.RATE_LIMIT_COOLDOWN_MS);
+        instructions += ` (频率受限，预计 ${recoverAt.toLocaleString()} 恢复)`;
+      }
+      if (p.unavailableAt) {
+        const recoverAt = new Date(new Date(p.unavailableAt).getTime() + ProviderManager.UNAVAILABLE_COOLDOWN_MS);
+        instructions += ` (不可用，预计 ${recoverAt.toLocaleString()} 恢复)`;
       }
       instructions += '\n';
     }
@@ -350,7 +438,7 @@ export class ProviderManager {
 
   /**
    * 获取当前提供商的连接配置
-   * 唯一事实来源：provider 配置文件
+ * 唯一事实来源：provider 配置文件
    */
   getEnvConfig(): { ANTHROPIC_AUTH_TOKEN: string; ANTHROPIC_BASE_URL: string; ANTHROPIC_MODEL: string } | null {
     const provider = this.getCurrentProvider();
@@ -383,12 +471,29 @@ export class ProviderManager {
 
     for (const p of sorted) {
       const isCurrent = p.name === this.currentProviderName;
-      const label = {
-        'active':       '✅ 当前使用',
-        'available':    '🟢 可用',
-        'rate_limited': '🔴 频率受限',
-        'unavailable':  '⚫ 不可用',
-      }[p.status] || '⚫ 未知';
+      let label = '';
+      switch (p.status) {
+        case 'active':
+          label = '✅ 当前使用';
+          break;
+        case 'available':
+          label = '🟢 可用';
+          break;
+        case 'rate_limited':
+          label = '🔴 频率受限';
+          if (p.rateLimitedAt) {
+            const recoverAt = new Date(new Date(p.rateLimitedAt).getTime() + ProviderManager.RATE_LIMIT_COOLDOWN_MS);
+            label += ` (预计 ${recoverAt.toLocaleString()} 恢复)`;
+          }
+          break;
+        case 'unavailable':
+          label = '⚫ 不可用';
+          if (p.unavailableAt) {
+            const recoverAt = new Date(new Date(p.unavailableAt).getTime() + ProviderManager.UNAVAILABLE_COOLDOWN_MS);
+            label += ` (预计 ${recoverAt.toLocaleString()} 恢复)`;
+          }
+          break;
+      }
 
       console.log(`  ${isCurrent ? '→' : ' '} ${p.name}  ${label}  ${p.model}`);
     }

@@ -162,22 +162,32 @@ export interface NotificationPayload {
 
 export type ProviderStatus = 'active' | 'rate_limited' | 'available' | 'unavailable';
 
-export interface AIProvider {
-  name: string;              // 提供商名称，如 "glm-1", "openai-main"
-  authToken: string;         // ANTHROPIC_AUTH_TOKEN
-  baseUrl: string;           // ANTHROPIC_BASE_URL
-  model: string;             // ANTHROPIC_MODEL
-  status: ProviderStatus;    // 当前状态
-  lastUsed?: string;         // 最后使用时间
-  rateLimitedAt?: string;    // 被限制的时间
-  notes?: string;            // 备注
+// 静态配置（保存到 provider JSON 文件）
+export interface ProviderStaticConfig {
+  name: string;
+  authToken: string;
+  baseUrl: string;
+  model: string;
+  notes?: string;
 }
 
-export interface ProviderConfig {
-  currentProvider: string;   // 当前使用的提供商名称
-  providers: AIProvider[];   // 所有提供商列表
-  lastSwitchAt?: string;     // 最后切换时间
-  totalSwitches: number;     // 总切换次数
+// 运行时状态（保存到 .state.json）
+export interface ProviderRuntimeState {
+  status: ProviderStatus;
+  lastUsed?: string;
+  rateLimitedAt?: string;
+  unavailableAt?: string;
+}
+
+// 内存中的完整 Provider 对象（向后兼容）
+export interface AIProvider extends ProviderStaticConfig, ProviderRuntimeState {}
+
+// .state.json 文件格式
+export interface ProviderStateFile {
+  currentProvider: string;
+  totalSwitches: number;
+  lastSwitchAt?: string;
+  providers: Record<string, ProviderRuntimeState>;
 }
 
 export interface SwitchResult {

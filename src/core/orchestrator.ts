@@ -72,6 +72,10 @@ export class Orchestrator {
     await this.failureCollector.initialize();
     await this.providerManager.initialize();
 
+    // 启动时立即将当前 provider 配置写入 process.env
+    // 确保后续 query() 启动的 Claude 子进程继承正确的环境变量
+    await this.applyCurrentProvider();
+
     // 设置信号处理
     const shutdown = getGracefulShutdown();
     shutdown.initialize(this.logger);
@@ -434,7 +438,7 @@ ${docList}
 
   /**
    * 应用当前提供商配置到环境变量
-   * 仅在切换提供商后调用
+   * 启动时和切换提供商后都会调用
    */
   private async applyCurrentProvider(): Promise<void> {
     const envConfig = this.providerManager.getEnvConfig();
