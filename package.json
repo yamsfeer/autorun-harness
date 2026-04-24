@@ -10,7 +10,10 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "ai",
@@ -23,15 +26,17 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.98",
-    "commander": "^12.0.0",
     "chalk": "^4.1.2",
-    "ora": "^5.4.1",
+    "commander": "^12.0.0",
     "fs-extra": "^11.2.0",
+    "ora": "^5.4.1",
     "playwright": "^1.40.0"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^20.11.0",
-    "typescript": "^5.3.3"
+    "@vitest/coverage-v8": "^4.1.5",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.5"
   }
 }

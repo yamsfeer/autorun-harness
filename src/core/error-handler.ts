@@ -148,9 +148,20 @@ export async function withRetryAndTimeout<T>(
  * 解析错误类型
  */
 export function parseErrorType(error: unknown): ErrorType {
+  // 检查是否已经是带类型的 AppError
   if (error instanceof Error) {
+    const appError = error as AppError;
+    if (appError.type && appError.type !== 'unknown') {
+      return appError.type;
+    }
+
     const message = error.message.toLowerCase();
     const name = error.name.toLowerCase();
+
+    // 评估器错误
+    if (name.includes('evaluator') || message.includes('评估器')) {
+      return 'evaluator_error';
+    }
 
     // API 限制错误
     if (message.includes('429') || message.includes('rate limit') || message.includes('too many requests')) {

@@ -96,6 +96,9 @@ export class Orchestrator {
         phase: this.currentPhase,
       });
 
+      // 确保任务状态保持为 in_progress，以便下次恢复
+      await this.stateManager.updateTaskStatus(this.currentTask.id, 'in_progress');
+
       // 如果有正在进行的任务，记录中断状态
       await this.stateManager.appendProgress({
         timestamp: new Date().toISOString(),
@@ -507,7 +510,27 @@ ${docList}
     this.logger.warn('orchestrator', '任务评估失败', {
       taskId: task.id,
       summary: report.summary,
+      evaluatorError: report.evaluator_error,
     });
+
+    // 如果评估器自身崩溃，不增加尝试次数（Bug-005 修复）
+    if (report.evaluator_error) {
+      console.log(`   ❌ 评估器自身崩溃: ${report.summary}`);
+      console.log('   🔄 评估器错误不计入任务重试，将重试评估');
+
+      await this.stateManager.addTaskNote(task.id, `评估器崩溃: ${report.summary}（不计入重试次数）`);
+      await this.stateManager.appendProgress({
+        timestamp: new Date().toISOString(),
+        taskId: task.id,
+        status: 'pending',
+        details: `评估器自身崩溃，将重试评估\n\n原因: ${report.summary}`,
+        errors: [report.summary],
+      });
+
+      // 回退到 pending 状态，不增加尝试次数
+      await this.stateManager.updateTaskStatus(task.id, 'pending');
+      return;
+    }
 
     console.log(`   ❌ 评估失败: ${report.summary}`);
 
@@ -646,7 +669,7 @@ ${spec}
     });
 
     // 处理消息流
-    let lastResult: { success: boolean; usage?: any; error?: string } | null = null;
+    let lastResult: { success: boolean; usage?: any; error?: string; rawMessage?: any } | null = null;
 
     for await (const message of queryResult) {
       if (message.type === 'result') {
@@ -674,6 +697,12 @@ ${spec}
       throw new Error('Agent 执行异常：未收到结果消息，可能是请求超时或被中断');
     }
     if (!lastResult.success) {
+      // 记录完整原始消息以便诊断
+      this.logger.error('orchestrator', 'Generator Agent 执行失败', undefined, {
+        taskId: task.id,
+        error: lastResult.error,
+        rawMessage: lastResult.rawMessage,
+      });
       throw new Error(lastResult.error || 'Agent 执行失败');
     }
   }

@@ -207,12 +207,27 @@ export function createMessageHandler(config: MessageHandlerConfig = {}) {
   /**
    * 处理结果消息
    */
-  function handleResult(message: any): { success: boolean; usage?: any; error?: string } {
+  function handleResult(message: any): { success: boolean; usage?: any; error?: string; rawMessage?: any } {
     const success = message.subtype === 'success';
     const usage = message.usage;
-    const error = message.error?.message || message.error || (success ? undefined : '未知错误');
 
-    return { success, usage, error };
+    let error: string | undefined;
+    if (!success) {
+      // SDKResultError: has `errors: string[]` and `subtype` like 'error_max_turns', etc.
+      if (message.errors && Array.isArray(message.errors) && message.errors.length > 0) {
+        error = message.errors.join('; ');
+      } else if (message.error?.message) {
+        error = message.error.message;
+      } else if (message.error) {
+        error = String(message.error);
+      } else if (message.subtype) {
+        error = `Agent 执行失败: ${message.subtype}`;
+      } else {
+        error = 'Agent 执行失败（未知原因）';
+      }
+    }
+
+    return { success, usage, error, rawMessage: message };
   }
 
   /**

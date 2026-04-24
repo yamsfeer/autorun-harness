@@ -35,6 +35,7 @@ export type ErrorType =
   | 'rate_limit'        // 频率限制 (429)
   | 'usage_limit'       // 用量限制（日/周额度用尽）
   | 'agent_error'       // Agent 执行错误
+  | 'evaluator_error'   // 评估器自身错误（非代码问题）
   | 'validation_error'  // 验证错误
   | 'file_error'        // 文件操作错误
   | 'unknown';          // 未知错误

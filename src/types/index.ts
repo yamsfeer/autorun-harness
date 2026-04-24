@@ -49,6 +49,8 @@ export interface Task {
   description: string;
   acceptance_criteria: AcceptanceCriterion[];
   dependencies: string[];
+  /** 关键产出文件路径（相对项目根目录），用于依赖检查时验证代码是否已生成 */
+  outputs?: string[];
   attempts: number;
   status: TaskStatus;
   assigned_to: string | null;
@@ -141,6 +143,8 @@ export interface EvaluatorReport {
   final_decision: 'pass' | 'fail';
   feedback_for_generator: string;
   screenshot_paths: string[];
+  /** 标记此报告是否为评估器自身崩溃导致的（非代码问题） */
+  evaluator_error?: boolean;
 }
 
 /**

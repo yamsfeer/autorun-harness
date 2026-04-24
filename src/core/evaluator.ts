@@ -3,6 +3,7 @@ import { createAgentLoader, AgentDefinition } from '../agents/index.js';
 import { Task, EvaluatorReport, AcceptanceCriterion, AcceptanceCriterionStatus } from '../types/index.js';
 import { StateManager } from './state-manager.js';
 import { createMessageHandler, MessageHandler } from './message-handler.js';
+import { createError } from './error-handler.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -103,7 +104,7 @@ ${spec}
       });
 
       // 处理消息流
-      let lastResult: { success: boolean; usage?: any; error?: string } | null = null;
+      let lastResult: { success: boolean; usage?: any; error?: string; rawMessage?: any } | null = null;
 
       for await (const message of queryResult) {
         if (message.type === 'result') {
@@ -116,10 +117,19 @@ ${spec}
 
       // 检查 Agent 执行结果
       if (!lastResult) {
-        throw new Error('评估器执行异常：未收到结果消息');
+        throw createError('evaluator_error', '评估器执行异常：未收到结果消息', {
+          context: { taskId: task.id, attempt },
+        });
       }
       if (!lastResult.success) {
-        throw new Error(lastResult.error || '评估器执行失败');
+        // 记录完整原始消息以便诊断
+        console.error('   ❌ 评估器 Agent 执行失败:', lastResult.error);
+        if (lastResult.rawMessage) {
+          console.error('   原始消息:', JSON.stringify(lastResult.rawMessage, null, 2).slice(0, 800));
+        }
+        throw createError('evaluator_error', lastResult.error || '评估器执行失败', {
+          context: { taskId: task.id, attempt, rawMessage: lastResult.rawMessage },
+        });
       }
 
       // 读取生成的评估报告
@@ -129,29 +139,37 @@ ${spec}
       try {
         const reportContent = await fs.readFile(fullReportPath, 'utf-8');
         report = JSON.parse(reportContent) as EvaluatorReport;
-        
+
+        // 验证最终决策与阈值的一致性（Bug-001 修复）
+        report = this.validateReportThreshold(report);
+
         // 更新 tasks.json 中的 acceptance_criteria 状态
         await this.updateTaskAcceptanceStatus(task.id, report);
-        
+
       } catch (error) {
-        console.log('   ⚠️  未找到评估报告，生成默认失败报告');
+        console.log('   ⚠️  未找到评估报告或报告解析失败，生成默认失败报告');
         // 如果没有生成报告，视为评估失败
         report = this.createDefaultReport(task, attempt, 'fail', '评估完成但未生成报告，视为失败');
         await this.saveReport(report);
+        // 即使生成默认报告也尝试更新 AC 状态
+        await this.updateTaskAcceptanceStatus(task.id, report);
       }
 
       return report;
 
     } catch (error) {
       console.error('   ❌ 评估失败:', error instanceof Error ? error.message : error);
-      // 返回失败报告
+      // 返回失败报告，并标记为 evaluator_error（评估器自身问题，非代码问题）
       const report = this.createDefaultReport(
         task,
         attempt,
         'fail',
-        `评估过程出错: ${error instanceof Error ? error.message : String(error)}`
+        `评估过程出错: ${error instanceof Error ? error.message : String(error)}`,
+        true // evaluator_error = true
       );
       await this.saveReport(report);
+      // 即使评估器崩溃也回写 AC 状态（全部标记为 fail 并注明原因）
+      await this.updateTaskAcceptanceStatus(task.id, report);
       return report;
     }
   }
@@ -178,6 +196,26 @@ ${spec}
   }
 
   /**
+   * 验证报告的阈值逻辑一致性（Bug-001 修复）
+   * 确保 final_decision = "pass" 当且仅当 total_weighted_score >= threshold
+   */
+  private validateReportThreshold(report: EvaluatorReport): EvaluatorReport {
+    const calculatedDecision = report.total_weighted_score >= report.threshold ? 'pass' : 'fail';
+    if (report.final_decision !== calculatedDecision) {
+      console.warn(
+        `   ⚠️  报告阈值逻辑不一致: total_weighted_score=${report.total_weighted_score}, threshold=${report.threshold}, 但 final_decision="${report.final_decision}"，已修正为 "${calculatedDecision}"`
+      );
+      report.final_decision = calculatedDecision;
+      // 如果修正为 fail，也修正 overall_result
+      if (calculatedDecision === 'fail') {
+        report.overall_result = 'fail';
+        report.summary = `[阈值修正] ${report.summary}`;
+      }
+    }
+    return report;
+  }
+
+  /**
    * 保存评估报告
    */
   private async saveReport(report: EvaluatorReport): Promise<void> {
@@ -199,7 +237,8 @@ ${spec}
     task: Task,
     attempt: number,
     result: 'pass' | 'fail',
-    summary: string
+    summary: string,
+    evaluatorError: boolean = false
   ): EvaluatorReport {
     return {
       report_id: `ER-${Date.now()}`,
@@ -229,6 +268,7 @@ ${spec}
       final_decision: result,
       feedback_for_generator: summary,
       screenshot_paths: [],
+      evaluator_error: evaluatorError,
     };
   }
 }

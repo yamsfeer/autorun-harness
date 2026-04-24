@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { Task, TaskList, TaskStatus, ProgressEntry } from '../types/index.js';
 
@@ -183,12 +184,43 @@ ${entry.errors && entry.errors.length > 0 ? `错误：\n${entry.errors.map((e) =
 
   /**
    * 检查任务依赖是否满足
+   * 主逻辑：依赖任务状态为 completed
+   * 备选逻辑：如果依赖任务定义了 outputs 且所有产出文件都存在，也视为满足（Bug-006 修复）
    */
   private areDependenciesMet(task: Task, tasks: TaskList): boolean {
     return task.dependencies.every((depId) => {
       const dep = tasks.tasks.find((t) => t.id === depId);
-      return dep && dep.status === 'completed';
+      if (!dep) return false;
+
+      // 主检查：状态是否已完成
+      if (dep.status === 'completed') {
+        return true;
+      }
+
+      // 备选检查：如果任务定义了关键产出文件，检查它们是否都存在
+      if (dep.outputs && dep.outputs.length > 0) {
+        return this.checkOutputsExist(dep.outputs);
+      }
+
+      return false;
     });
+  }
+
+  /**
+   * 检查任务的产出文件是否全部存在
+   */
+  private checkOutputsExist(outputs: string[]): boolean {
+    try {
+      for (const outputPath of outputs) {
+        const fullPath = path.join(this.harnessDir, '..', outputPath);
+        if (!fsSync.existsSync(fullPath)) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
