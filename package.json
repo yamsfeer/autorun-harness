@@ -36,6 +36,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^20.11.0",
     "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/ui": "^4.1.5",
     "typescript": "^5.3.3",
     "vitest": "^4.1.5"
   }

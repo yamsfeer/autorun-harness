@@ -30,11 +30,22 @@ interface InitializeOptions {
  * 主控编排器
  * 负责协调整个代理框架的执行流程
  */
+export interface OrchestratorDeps {
+  stateManager?: StateManager;
+  agentLoader?: ReturnType<typeof createAgentLoader>;
+  evaluator?: Evaluator;
+  logger?: Logger;
+  costTracker?: CostTracker;
+  failureCollector?: FailureCollector;
+  providerManager?: ProviderManager;
+  messageHandler?: MessageHandler;
+}
+
 export class Orchestrator {
   private stateManager: StateManager;
   private projectDir: string;
   private harnessDir: string;
-  private agentLoader;
+  private agentLoader: ReturnType<typeof createAgentLoader>;
   private evaluator: Evaluator;
 
   // 质量保障模块
@@ -48,19 +59,19 @@ export class Orchestrator {
   private currentTask: Task | null = null;
   private currentPhase: string = '';
 
-  constructor(projectDir: string) {
+  constructor(projectDir: string, deps: OrchestratorDeps = {}) {
     this.projectDir = projectDir;
     this.harnessDir = path.join(projectDir, '.harness');
-    this.stateManager = new StateManager(projectDir);
-    this.agentLoader = createAgentLoader();
-    this.evaluator = createEvaluator(projectDir);
+    this.stateManager = deps.stateManager ?? new StateManager(projectDir);
+    this.agentLoader = deps.agentLoader ?? createAgentLoader();
+    this.evaluator = deps.evaluator ?? createEvaluator(projectDir);
 
     // 初始化质量保障模块
-    this.logger = createLogger(this.harnessDir, { level: 'info' });
-    this.costTracker = createCostTracker(this.harnessDir);
-    this.failureCollector = createFailureCollector(this.harnessDir);
-    this.providerManager = getProviderManager();
-    this.messageHandler = createMessageHandler();
+    this.logger = deps.logger ?? createLogger(this.harnessDir, { level: 'info' });
+    this.costTracker = deps.costTracker ?? createCostTracker(this.harnessDir);
+    this.failureCollector = deps.failureCollector ?? createFailureCollector(this.harnessDir);
+    this.providerManager = deps.providerManager ?? getProviderManager();
+    this.messageHandler = deps.messageHandler ?? createMessageHandler();
   }
 
   /**

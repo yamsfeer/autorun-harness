@@ -17,8 +17,8 @@ describe('createMessageHandler', () => {
   function expectConsoleContains(substring: string) {
     expect(consoleSpy).toHaveBeenCalled();
     const calls = consoleSpy.mock.calls;
-    const found = calls.some((call) =>
-      call.some((arg) => typeof arg === 'string' && arg.includes(substring))
+    const found = calls.some((call: unknown[]) =>
+      call.some((arg: unknown) => typeof arg === 'string' && arg.includes(substring))
     );
     expect(found).toBe(true);
   }
