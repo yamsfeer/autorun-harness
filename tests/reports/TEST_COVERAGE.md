@@ -1,7 +1,7 @@
 # Autorun Harness - 功能与测试覆盖报告
 
 > 生成时间: 2026-04-25
-> 对应提交: 基于当前工作目录的未提交修改（evaluator / orchestrator / state-manager / error-handler / message-handler 的 bug 修复）
+> 对应提交: 基于当前工作目录的未提交修改（ evaluator / orchestrator 核心测试补充）
 
 ---
 
@@ -69,31 +69,37 @@ PRD / 需求描述
 
 ## 三、测试覆盖现状
 
-### 已覆盖模块（4 个文件，94 个测试）
+### 已覆盖模块（5 个文件，134 个测试）
 
 | 测试文件 | 测试数 | 覆盖的功能点 |
 |----------|--------|-------------|
 | `src/core/error-handler.test.ts` | 38 | 错误创建与属性、重试逻辑（含指数退避与 maxDelay 上限）、超时、错误类型解析（network/rate_limit/usage_limit/api_timeout/evaluator_error 等）、格式化、退出指令、环境变量设置 |
 | `src/core/message-handler.test.ts` | 24 | 工具调用解析（Read/Write/Edit/Bash/Glob/Grep）、文本行动声明提取、Markdown 标题提取、工具错误结果展示、result 消息处理（success/errors array/error.message/subtype/unknown 五种分支）、reset 清理 |
 | `src/core/state-manager.test.ts` | 20 | 任务加载/保存、spec 读写、状态更新（含 completed_at）、尝试次数递增、备注追加、进度日志读写、依赖检查（completed 状态）、**outputs 文件存在性备选依赖检查（Bug-006）**、项目完成判断、统计更新 |
-| `src/core/evaluator.test.ts` | 12 | **阈值验证（Bug-001）**、**AC 状态回写（Bug-004）**、**默认报告生成含 evaluator_error 标记（Bug-005）**、报告保存路径 |
+| `src/core/evaluator.test.ts` | 19 | **evaluate 主方法**（成功/失败/报告不存在/解析失败/外部异常全场景）、**阈值验证（Bug-001）**、**AC 状态回写（Bug-004）**、**默认报告生成含 evaluator_error 标记（Bug-005）**、报告保存路径、createEvaluator 工厂函数 |
+| `src/core/orchestrator.test.ts` | 33 | **run() 边界与正常流程**（项目完成/无任务/成功/评估失败/重试/needs_human）、**Generator 错误处理**（rate_limit 切换成功/失败、普通错误）、**Token 预算**、**handleInterruption（Bug-002）**、**handleProviderSwitch**、**buildUserPrompt/formatExistingDocsInfo**、**runGenerator**、**getTaskAttempts/getSessionId/printFinalStats/getStatus** |
 
 ### Bug 修复的测试覆盖对照
 
 | Bug | 修复位置 | 测试覆盖 | 测试方式 |
 |-----|----------|----------|----------|
 | Bug-001 | `evaluator.ts` `validateReportThreshold` | **是** | 直接测试私有方法：score<threshold 修正为 fail、score>=threshold 保持 pass、边界值 |
-| Bug-002 | `orchestrator.ts` `handleInterruption` | **否** | Orchestrator 尚无单元测试 |
+| Bug-002 | `orchestrator.ts` `handleInterruption` | **是** | 直接测试私有方法：有/无 currentTask 场景 |
 | Bug-003 | `message-handler.ts` `handleResult` | **是** | 直接测试：errors array、error.message、error object、subtype、unknown 分支 |
 | Bug-004 | `evaluator.ts` `updateTaskAcceptanceStatus` | **是** | 直接测试私有方法：pass/fail 回写、缺失 criteria_results、缺失 task |
-| Bug-005 | `evaluator.ts` `createDefaultReport` + `orchestrator.ts` `handleTaskFailure` | **部分** | Evaluator 的标记和报告生成已测试；Orchestrator 中对 evaluator_error 的任务处理（不计入重试）**未测试** |
+| Bug-005 | `evaluator.ts` `createDefaultReport` + `orchestrator.ts` `handleTaskFailure` | **是** | Evaluator 的标记和报告生成已测试；Orchestrator 中 evaluator_error 不计入重试、回退 pending 已测试 |
 | Bug-006 | `state-manager.ts` `areDependenciesMet` / `checkOutputsExist` | **是** | 通过 `getNextTask` 集成测试：outputs 存在时允许下游、outputs 缺失时阻塞 |
 
-### 未覆盖模块（13 个文件，零测试）
+### 部分覆盖模块
+
+| 模块 | 文件 | 已覆盖 | 未覆盖 | 测试难度 |
+|------|------|--------|--------|----------|
+| **编排器** | `src/core/orchestrator.ts` | `run()` 主循环、`handleInterruption`、`handleProviderSwitch`、`buildUserPrompt`、`runGenerator`、`getTaskAttempts` 等 | `initialize()`（Planner Agent 调用）、`applyCurrentProvider`（环境变量副作用）、`printFinalStats`（部分输出分支） | 高 |
+
+### 未覆盖模块（10 个文件，零测试）
 
 | 模块 | 文件 | 未覆盖原因 | 测试难度 |
 |------|------|-----------|----------|
-| **编排器** | `src/core/orchestrator.ts` | 依赖链过长（SDK query、StateManager、Evaluator、Logger、CostTracker、FailureCollector、ProviderManager、GracefulShutdown） | 高 |
 | 初始化命令 | `src/commands/init.ts` | 调用 Planner Agent SDK、文件系统操作 | 中 |
 | 运行命令 | `src/commands/run.ts` | 调用 Orchestrator | 中 |
 | Provider 命令 | `src/commands/provider.ts` | CLI 交互、文件系统 | 低 |
@@ -127,29 +133,52 @@ PRD / 需求描述
 
 ## 五、覆盖率数据
 
-运行 `npm run test:coverage` 可生成详细报告。当前粗略估计：
+运行 `npm run test:coverage` 可生成详细报告。当前数据（2026-04-25）：
 
-- **已测试代码行数**：约 600+ 行（error-handler、message-handler、state-manager、evaluator 的纯逻辑部分）
-- **未测试代码行数**：约 2000+ 行（orchestrator、commands、provider-manager、cost-tracker、failure-collector、logger、playwright-tester、graceful-shutdown、agents）
-- **整体覆盖率**：约 25%（行数估测）
+| 指标 | 覆盖率 | 已覆盖 / 总数 |
+|------|--------|---------------|
+| Statements | **42.33%** | 511 / 1207 |
+| Branches | **42.56%** | 269 / 632 |
+| Functions | **44.33%** | 90 / 203 |
+| Lines | **42.35%** | 499 / 1178 |
+
+### 核心文件明细
+
+| 文件 | 语句覆盖 | 分支覆盖 | 函数覆盖 | 备注 |
+|------|----------|----------|----------|------|
+| `src/core/evaluator.ts` | **100%** | 84.84% | **100%** | 完整覆盖 evaluate 主方法及所有私有方法 |
+| `src/core/orchestrator.ts` | **78.85%** | 62.6% | 85.71% | 已覆盖 run()、handleInterruption、handleProviderSwitch、runGenerator 等 |
+| `src/core/error-handler.ts` | 95.4% | 94.73% | **100%** | 仅 4 行未覆盖 |
+| `src/core/message-handler.ts` | 97.7% | 85.5% | **100%** | 仅 1 行未覆盖 |
+| `src/core/state-manager.ts` | 95.5% | 86.11% | **100%** | 仅 3 行未覆盖 |
+| `src/core/cost-tracker.ts` | 0% | 0% | 0% | 未测试 |
+| `src/core/failure-collector.ts` | 0% | 0% | 0% | 未测试 |
+| `src/core/provider-manager.ts` | 2.01% | 0% | 0% | 未测试 |
+| `src/core/logger.ts` | 0% | 0% | 0% | 未测试 |
+| `src/core/graceful-shutdown.ts` | 3.84% | 0% | 0% | 未测试 |
+| `src/core/playwright-tester.ts` | 0% | 0% | 0% | 未测试 |
+| `src/commands/*` | 0% | 0% | 0% | 未测试 |
+| `src/agents/loader.ts` | 30.76% | 28.57% | 33.33% | 部分路径未覆盖 |
 
 ---
 
 ## 六、下一步测试建议（按优先级）
 
-### P0 — 堵住最大风险
-1. **Orchestrator 单元测试** — 重点覆盖 `handleTaskFailure`（evaluator_error 分支）、`handleTaskError`、`handleInterruption`、`runGenerator` 的错误处理路径
+### P0 — 堵住最大风险（已完成）
+1. ~~**Orchestrator 单元测试** — 重点覆盖 `handleTaskFailure`（evaluator_error 分支）、`handleTaskError`、`handleInterruption`、`runGenerator` 的错误处理路径~~ ✅ 已完成
+2. ~~**Evaluator evaluate() 主方法测试** — 覆盖成功/失败/报告不存在/解析失败/外部异常全场景~~ ✅ 已完成
 
 ### P1 — 质量保障模块
-2. **ProviderManager 测试** — 提供商切换、rate_limit / usage_limit 处理、状态持久化
-3. **CostTracker 测试** — Token 记录、预算超限检查、报告生成
-4. **FailureCollector 测试** — 失败记录收集、failure.md 生成
+3. **ProviderManager 测试** — 提供商切换、rate_limit / usage_limit 处理、状态持久化
+4. **CostTracker 测试** — Token 记录、预算超限检查、报告生成
+5. **FailureCollector 测试** — 失败记录收集、failure.md 生成
 
 ### P2 — 命令层与辅助模块
-5. **commands/init.ts 测试** — 目录结构创建、文件生成
-6. **commands/provider.ts 测试** — 配置增删查切
-7. **Logger 测试** — 日志级别过滤、文件输出
-8. **GracefulShutdown 测试** — 信号处理、回调执行
+6. **commands/init.ts 测试** — 目录结构创建、文件生成
+7. **commands/provider.ts 测试** — 配置增删查切
+8. **Logger 测试** — 日志级别过滤、文件输出
+9. **GracefulShutdown 测试** — 信号处理、回调执行
+10. **Orchestrator `initialize()` 方法** — Planner Agent 调用、模式切换、provider 应用
 
 ---
 

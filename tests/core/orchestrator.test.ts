@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Orchestrator, OrchestratorDeps } from '../../src/core/orchestrator.js';
 import { Task, EvaluatorReport } from '../../src/types/index.js';
+
+// Mock claude-agent-sdk 的 query
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(),
+}));
 
 // Mock cost-tracker 以支持 maxTokens 路径测试（run() 内部会重新创建 costTracker）
 vi.mock('../../src/core/cost-tracker.js', () => ({
@@ -406,6 +412,304 @@ describe('Orchestrator', () => {
       expect(status.isComplete).toBe(false);
       expect(status.statistics).toEqual(stats);
       expect(status.nextTask).toBeNull();
+    });
+  });
+
+  describe('handleInterruption (Bug-002 fix)', () => {
+    it('有 currentTask 时应保存状态并记录中断', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      const task: Task = {
+        id: 'T001', title: 'Test', category: 'functional', priority: 'high',
+        description: 'desc', acceptance_criteria: [], dependencies: [],
+        attempts: 1, status: 'in_progress', assigned_to: null, completed_at: null, notes: [],
+      };
+
+      (orchestrator as any).currentTask = task;
+      (orchestrator as any).currentPhase = 'generation';
+
+      await (orchestrator as any).handleInterruption();
+
+      expect(deps.stateManager.updateTaskStatus).toHaveBeenCalledWith('T001', 'in_progress');
+      expect(deps.stateManager.appendProgress).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: 'T001', status: 'interrupted' })
+      );
+      expect(deps.failureCollector.recordFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          task,
+          errorType: 'api_timeout',
+          agentPhase: 'generation',
+        })
+      );
+    });
+
+    it('无 currentTask 时不应执行任何操作', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      (orchestrator as any).currentTask = null;
+
+      await (orchestrator as any).handleInterruption();
+
+      expect(deps.stateManager.updateTaskStatus).not.toHaveBeenCalled();
+      expect(deps.stateManager.appendProgress).not.toHaveBeenCalled();
+      expect(deps.failureCollector.recordFailure).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleProviderSwitch', () => {
+    it('rate_limit 切换成功时应返回 true', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.providerManager.handleRateLimit.mockResolvedValue({
+        success: true,
+        newProvider: 'backup',
+        previousProvider: 'primary',
+      });
+
+      const result = await (orchestrator as any).handleProviderSwitch('rate_limit');
+
+      expect(result).toBe(true);
+      expect(deps.providerManager.handleRateLimit).toHaveBeenCalled();
+      expect(deps.providerManager.handleUsageLimit).not.toHaveBeenCalled();
+    });
+
+    it('rate_limit 切换失败时应返回 false', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.providerManager.handleRateLimit.mockResolvedValue({
+        success: false,
+        reason: 'No available provider',
+      });
+
+      const result = await (orchestrator as any).handleProviderSwitch('rate_limit');
+
+      expect(result).toBe(false);
+    });
+
+    it('usage_limit 切换成功时应返回 true', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.providerManager.handleUsageLimit.mockResolvedValue({
+        success: true,
+        newProvider: 'backup',
+        previousProvider: 'primary',
+      });
+
+      const result = await (orchestrator as any).handleProviderSwitch('usage_limit');
+
+      expect(result).toBe(true);
+      expect(deps.providerManager.handleUsageLimit).toHaveBeenCalled();
+    });
+
+    it('usage_limit 切换失败时应返回 false', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.providerManager.handleUsageLimit.mockResolvedValue({
+        success: false,
+        reason: 'No available provider',
+      });
+
+      const result = await (orchestrator as any).handleProviderSwitch('usage_limit');
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('buildUserPrompt', () => {
+    it('simple 模式应生成简洁提示', () => {
+      const { orchestrator } = createOrchestrator();
+      const prompt = (orchestrator as any).buildUserPrompt('测试需求', 'TestProject', { mode: 'simple' });
+
+      expect(prompt).toContain('测试需求');
+      expect(prompt).toContain('TestProject');
+      expect(prompt).toContain('.harness/spec.md');
+      expect(prompt).toContain('.harness/tasks.json');
+      expect(prompt).not.toContain('CLAUDE.md');
+    });
+
+    it('full 模式应生成完整提示', () => {
+      const { orchestrator } = createOrchestrator();
+      const prompt = (orchestrator as any).buildUserPrompt('测试需求', 'TestProject', { mode: 'full' });
+
+      expect(prompt).toContain('测试需求');
+      expect(prompt).toContain('CLAUDE.md');
+      expect(prompt).toContain('docs/DESIGN.md');
+      expect(prompt).toContain('.harness/tasks.json');
+    });
+
+    it('full 模式带已有文档时应包含文档列表', () => {
+      const { orchestrator } = createOrchestrator();
+      const prompt = (orchestrator as any).buildUserPrompt('测试需求', 'TestProject', {
+        mode: 'full',
+        existingDocs: { 'DESIGN.md': 'content', 'API_CONTRACT.md': 'content' },
+      });
+
+      expect(prompt).toContain('已有文档');
+      expect(prompt).toContain('DESIGN.md');
+      expect(prompt).toContain('API_CONTRACT.md');
+    });
+
+    it('无 projectName 时不应包含项目名称', () => {
+      const { orchestrator } = createOrchestrator();
+      const prompt = (orchestrator as any).buildUserPrompt('测试需求', undefined, { mode: 'simple' });
+
+      expect(prompt).toContain('测试需求');
+      expect(prompt).not.toContain('项目名称');
+    });
+  });
+
+  describe('formatExistingDocsInfo', () => {
+    it('空文档应返回空字符串', () => {
+      const { orchestrator } = createOrchestrator();
+      const result = (orchestrator as any).formatExistingDocsInfo({});
+
+      expect(result).toBe('');
+    });
+
+    it('有文档时应返回格式化列表', () => {
+      const { orchestrator } = createOrchestrator();
+      const result = (orchestrator as any).formatExistingDocsInfo({ 'A.md': 'a', 'B.md': 'b' });
+
+      expect(result).toContain('A.md');
+      expect(result).toContain('B.md');
+    });
+
+    it('undefined 时应返回空字符串', () => {
+      const { orchestrator } = createOrchestrator();
+      const result = (orchestrator as any).formatExistingDocsInfo(undefined);
+
+      expect(result).toBe('');
+    });
+  });
+
+  describe('getTaskAttempts', () => {
+    it('应返回任务的尝试次数', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.stateManager.loadTasks.mockResolvedValue({
+        tasks: [{ id: 'T001', attempts: 2 }],
+      });
+
+      const attempts = await (orchestrator as any).getTaskAttempts('T001');
+
+      expect(attempts).toBe(2);
+    });
+
+    it('任务不存在时应返回 0', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.stateManager.loadTasks.mockResolvedValue({
+        tasks: [],
+      });
+
+      const attempts = await (orchestrator as any).getTaskAttempts('T001');
+
+      expect(attempts).toBe(0);
+    });
+  });
+
+  describe('getSessionId', () => {
+    it('应返回 session- 前缀的 ID', () => {
+      const { orchestrator } = createOrchestrator();
+      const id = (orchestrator as any).getSessionId();
+
+      expect(id).toMatch(/^session-\d+$/);
+    });
+  });
+
+  describe('printFinalStats', () => {
+    it('应输出正确的统计信息', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.stateManager.getStatistics.mockResolvedValue({
+        completed: 3, needs_human: 1, pending: 2, total: 6,
+        in_progress: 0, blocked: 0,
+      });
+      deps.failureCollector.getRecords.mockReturnValue([{ id: 1 }]);
+
+      await (orchestrator as any).printFinalStats(5);
+
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('5'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('3 完成'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('1 需人工'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('2 待处理'));
+    });
+
+    it('无错误记录时不应显示错误摘要', async () => {
+      const { orchestrator, deps } = createOrchestrator();
+      deps.stateManager.getStatistics.mockResolvedValue({
+        completed: 1, needs_human: 0, pending: 0, total: 1,
+        in_progress: 0, blocked: 0,
+      });
+      deps.failureCollector.getRecords.mockReturnValue([]);
+
+      await (orchestrator as any).printFinalStats(1);
+
+      expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('错误记录'));
+    });
+  });
+
+  describe('runGenerator', () => {
+    it('Agent 执行成功时应记录 token 使用', async () => {
+      const task: Task = {
+        id: 'T001', title: 'Test', category: 'functional', priority: 'high',
+        description: 'desc', acceptance_criteria: [], dependencies: [],
+        attempts: 0, status: 'pending', assigned_to: null, completed_at: null, notes: [],
+      };
+      const { orchestrator, deps } = createOrchestrator();
+
+      deps.stateManager.loadSpec.mockResolvedValue('spec content');
+      deps.agentLoader.loadGenerator.mockResolvedValue({ prompt: 'generator prompt' });
+      deps.messageHandler.handleResult.mockReturnValue({
+        success: true,
+        usage: { input_tokens: 10, output_tokens: 20 },
+      });
+
+      (query as any).mockReturnValue(async function* () {
+        yield { type: 'result', content: [{ type: 'text', text: 'done' }] };
+      }());
+
+      await (orchestrator as any).runGenerator(task);
+
+      expect(deps.costTracker.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent: 'generator',
+          inputTokens: 10,
+          outputTokens: 20,
+        })
+      );
+    });
+
+    it('未收到 result 消息时应抛出错误', async () => {
+      const task: Task = {
+        id: 'T001', title: 'Test', category: 'functional', priority: 'high',
+        description: 'desc', acceptance_criteria: [], dependencies: [],
+        attempts: 0, status: 'pending', assigned_to: null, completed_at: null, notes: [],
+      };
+      const { orchestrator, deps } = createOrchestrator();
+
+      deps.stateManager.loadSpec.mockResolvedValue('spec');
+      deps.agentLoader.loadGenerator.mockResolvedValue({ prompt: 'gen' });
+
+      (query as any).mockReturnValue(async function* () {
+        yield { type: 'assistant', content: [{ type: 'text', text: 'hello' }] };
+      }());
+
+      await expect((orchestrator as any).runGenerator(task)).rejects.toThrow('未收到结果消息');
+    });
+
+    it('result success=false 时应抛出错误', async () => {
+      const task: Task = {
+        id: 'T001', title: 'Test', category: 'functional', priority: 'high',
+        description: 'desc', acceptance_criteria: [], dependencies: [],
+        attempts: 0, status: 'pending', assigned_to: null, completed_at: null, notes: [],
+      };
+      const { orchestrator, deps } = createOrchestrator();
+
+      deps.stateManager.loadSpec.mockResolvedValue('spec');
+      deps.agentLoader.loadGenerator.mockResolvedValue({ prompt: 'gen' });
+      deps.messageHandler.handleResult.mockReturnValue({
+        success: false,
+        error: 'build failed',
+        usage: undefined,
+      });
+
+      (query as any).mockReturnValue(async function* () {
+        yield { type: 'result', content: [] };
+      }());
+
+      await expect((orchestrator as any).runGenerator(task)).rejects.toThrow('build failed');
     });
   });
 });

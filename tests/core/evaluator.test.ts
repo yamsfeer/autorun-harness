@@ -3,8 +3,13 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
-import { Evaluator } from '../../src/core/evaluator.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { Evaluator, createEvaluator } from '../../src/core/evaluator.js';
 import { Task, EvaluatorReport, TaskList } from '../../src/types/index.js';
+
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn(),
+}));
 
 describe('Evaluator', () => {
   let tempDir: string;
@@ -275,6 +280,145 @@ describe('Evaluator', () => {
       const saved = JSON.parse(await fs.readFile(reportPath, 'utf-8'));
       expect(saved.report_id).toBe('R001');
       expect(saved.task_id).toBe('T001');
+    });
+  });
+
+  describe('evaluate', () => {
+    beforeEach(async () => {
+      // 确保每次测试前清理 reports 目录
+      const reportsDir = path.join(tempDir, '.harness', 'reports');
+      try {
+        const files = await fs.readdir(reportsDir);
+        for (const f of files) {
+          await fs.unlink(path.join(reportsDir, f));
+        }
+      } catch {
+        // 目录可能不存在
+      }
+    });
+
+    it('Agent 执行成功且报告存在时应返回验证后的报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockResolvedValue({ prompt: 'eval' });
+      vi.spyOn((evaluator as any).stateManager, 'loadSpec').mockResolvedValue('spec content');
+
+      (query as any).mockReturnValue(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', usage: { input_tokens: 10, output_tokens: 20 } };
+        })()
+      );
+
+      // 创建报告文件（final_decision 和 score 一致）
+      const report = createMockReport({
+        total_weighted_score: 0.8,
+        threshold: 0.75,
+        final_decision: 'pass',
+      });
+      const reportPath = path.join(tempDir, '.harness', 'reports', 'evaluator_report_T001_1.json');
+      await fs.mkdir(path.dirname(reportPath), { recursive: true });
+      await fs.writeFile(reportPath, JSON.stringify(report), 'utf-8');
+
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.task_id).toBe('T001');
+      expect(result.final_decision).toBe('pass');
+      expect(result.evaluator_error).toBeFalsy();
+    });
+
+    it('未收到 result 消息时应返回 evaluator_error 报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockResolvedValue({ prompt: 'eval' });
+      vi.spyOn((evaluator as any).stateManager, 'loadSpec').mockResolvedValue('spec');
+
+      (query as any).mockReturnValue(
+        (async function* () {
+          yield { type: 'assistant', content: [{ type: 'text', text: 'hello' }] };
+        })()
+      );
+
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.task_id).toBe('T001');
+      expect(result.final_decision).toBe('fail');
+      expect(result.evaluator_error).toBe(true);
+      expect(result.summary).toContain('未收到结果消息');
+    });
+
+    it('result success=false 时应返回 evaluator_error 报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockResolvedValue({ prompt: 'eval' });
+      vi.spyOn((evaluator as any).stateManager, 'loadSpec').mockResolvedValue('spec');
+
+      (query as any).mockReturnValue(
+        (async function* () {
+          yield { type: 'result', subtype: 'error_max_turns', errors: ['build failed'] };
+        })()
+      );
+
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.final_decision).toBe('fail');
+      expect(result.evaluator_error).toBe(true);
+      expect(result.summary).toContain('build failed');
+    });
+
+    it('报告文件不存在时应生成默认报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockResolvedValue({ prompt: 'eval' });
+      vi.spyOn((evaluator as any).stateManager, 'loadSpec').mockResolvedValue('spec');
+
+      (query as any).mockReturnValue(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', usage: { input_tokens: 10, output_tokens: 20 } };
+        })()
+      );
+
+      // 不创建报告文件
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.task_id).toBe('T001');
+      expect(result.final_decision).toBe('fail');
+      expect(result.summary).toContain('未生成报告');
+    });
+
+    it('报告解析失败时应生成默认报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockResolvedValue({ prompt: 'eval' });
+      vi.spyOn((evaluator as any).stateManager, 'loadSpec').mockResolvedValue('spec');
+
+      (query as any).mockReturnValue(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', usage: { input_tokens: 10, output_tokens: 20 } };
+        })()
+      );
+
+      // 创建无效 JSON 文件
+      const reportPath = path.join(tempDir, '.harness', 'reports', 'evaluator_report_T001_1.json');
+      await fs.mkdir(path.dirname(reportPath), { recursive: true });
+      await fs.writeFile(reportPath, 'not valid json', 'utf-8');
+
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.final_decision).toBe('fail');
+      expect(result.summary).toContain('未生成报告');
+    });
+
+    it('evaluate 整体异常时应返回 evaluator_error 报告', async () => {
+      const task = createMockTask();
+      vi.spyOn((evaluator as any).agentLoader, 'loadEvaluator').mockRejectedValue(new Error('network error'));
+
+      const result = await evaluator.evaluate(task, 1);
+
+      expect(result.final_decision).toBe('fail');
+      expect(result.evaluator_error).toBe(true);
+      expect(result.summary).toContain('network error');
+    });
+  });
+
+  describe('createEvaluator', () => {
+    it('应创建 Evaluator 实例', () => {
+      const e = createEvaluator('/tmp/test');
+      expect(e).toBeInstanceOf(Evaluator);
     });
   });
 });
