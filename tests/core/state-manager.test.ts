@@ -3,8 +3,8 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
-import { StateManager } from './state-manager.js';
-import { TaskList, TaskStatus } from '../types/index.js';
+import { StateManager } from '../../src/core/state-manager.js';
+import { TaskList, TaskStatus } from '../../src/types/index.js';
 
 describe('StateManager', () => {
   let tempDir: string;

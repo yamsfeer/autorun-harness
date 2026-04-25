@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Orchestrator, OrchestratorDeps } from './orchestrator.js';
-import { Task, EvaluatorReport } from '../types/index.js';
+import { Orchestrator, OrchestratorDeps } from '../../src/core/orchestrator.js';
+import { Task, EvaluatorReport } from '../../src/types/index.js';
 
 // Mock cost-tracker 以支持 maxTokens 路径测试（run() 内部会重新创建 costTracker）
-vi.mock('./cost-tracker.js', () => ({
+vi.mock('../../src/core/cost-tracker.js', () => ({
   createCostTracker: vi.fn().mockReturnValue({
     initialize: vi.fn().mockResolvedValue(undefined),
     record: vi.fn().mockResolvedValue(undefined),

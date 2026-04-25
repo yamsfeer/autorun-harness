@@ -10,8 +10,8 @@ import {
   shouldExit,
   getExitInstructions,
   applyProviderConfig,
-} from './error-handler.js';
-import { AppError, ErrorType } from '../types/quality.js';
+} from '../../src/core/error-handler.js';
+import { AppError, ErrorType } from '../../src/types/quality.js';
 
 describe('createError', () => {
   it('should create an error with correct type and default properties', () => {

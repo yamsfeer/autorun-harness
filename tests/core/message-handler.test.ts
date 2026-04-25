@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createMessageHandler } from './message-handler.js';
+import { createMessageHandler } from '../../src/core/message-handler.js';
 
 describe('createMessageHandler', () => {
   let handler: ReturnType<typeof createMessageHandler>;

@@ -4,5 +4,5 @@ dist/
 *.d.ts.map
 .harness/
 test-projects/
-coverage/
-html/
+tests/coverage/
+tests/html/

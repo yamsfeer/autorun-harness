@@ -3,8 +3,8 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
-import { Evaluator } from './evaluator.js';
-import { Task, EvaluatorReport, TaskList } from '../types/index.js';
+import { Evaluator } from '../../src/core/evaluator.js';
+import { Task, EvaluatorReport, TaskList } from '../../src/types/index.js';
 
 describe('Evaluator', () => {
   let tempDir: string;
