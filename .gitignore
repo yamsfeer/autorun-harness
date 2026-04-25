@@ -6,3 +6,4 @@ dist/
 test-projects/
 tests/coverage/
 tests/html/
+.claude/
