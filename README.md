@@ -56,13 +56,13 @@ Give it a PRD (or a plain-text description) and it will analyze requirements, ge
 ### Prerequisites
 
 - Node.js 18+
-- An API key set via environment variable:
+- An AI provider configured via the `provider` command (the framework manages API keys and endpoints centrally — no manual environment variables needed):
   ```bash
-  export ANTHROPIC_AUTH_TOKEN="sk-ant-..."
-  # Optional: custom base URL and model
-  export ANTHROPIC_BASE_URL="https://api.anthropic.com"
-  export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+  # Add your first provider
+  node dist/index.js provider --add --name my-provider --token "your-token" --url "https://api.anthropic.com" --model "claude-sonnet-4-20250514"
   ```
+
+  See [Multi-provider support](#multi-provider-support) below for details on adding providers from different AI vendors (Anthropic, ZhiPu GLM, ByteDance ARK, OpenAI-compatible endpoints, etc.) and automatic switching on rate limits.
 
 ### Install
 
@@ -96,6 +96,9 @@ node dist/index.js run ./my-project
 
 # Limit to 5 tasks with a token budget
 node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
+
+# Continue a previously interrupted run
+node dist/index.js run ./my-project --continue
 ```
 
 **Manage AI providers:**
@@ -104,12 +107,27 @@ node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
 # Add a provider
 node dist/index.js provider --add --name glm --token "your-token" --url "https://open.bigmodel.cn/api/anthropic" --model "GLM-4.7"
 
-# List providers
+# List all providers and their status
 node dist/index.js provider --list
 
 # Switch to a specific provider
 node dist/index.js provider --switch glm
+
+# Remove a provider
+node dist/index.js provider --remove glm
 ```
+
+### Multi-provider support
+
+The framework supports any Anthropic-compatible API endpoint. Provider configs are stored globally at `~/.config/autorun-harness/providers/` and are the single source of truth — the Claude Agent SDK reads provider settings from `process.env`, which the framework sets automatically.
+
+**Supported providers include:**
+- **Anthropic** — the default API
+- **ZhiPu GLM** — via `https://open.bigmodel.cn/api/anthropic`
+- **ByteDance ARK** — via `https://ark.cn-beijing.volces.com/api/coding`
+- **OpenAI-compatible endpoints** — any service with an Anthropic-compatible API
+
+**Automatic switching:** When a provider hits a rate limit (429) or usage cap, the framework automatically switches to the next available provider. Rate-limited providers recover after 1 hour (cooldown), and usage-capped providers recover after 24 hours — both checked on-demand rather than by timers.
 
 ## Project State
 
@@ -123,6 +141,7 @@ Runtime state is stored in `<project-dir>/.harness/`:
 ├── costs.json             # Token usage records
 ├── failure.md             # Error collection and pattern analysis
 ├── logs/                  # Structured JSON logs
+├── screenshots/           # Playwright screenshots from evaluation
 └── reports/               # Evaluator reports per task/attempt
     └── evaluator_report_<task-id>_<attempt>.json
 ```
@@ -151,6 +170,7 @@ src/
 │   ├── cost-tracker.ts         # Token usage tracking and budget enforcement
 │   ├── failure-collector.ts    # Error collection and pattern analysis
 │   ├── provider-manager.ts     # Multi-provider pool management
+│   ├── message-handler.ts      # Filters and formats agent messages for console
 │   ├── graceful-shutdown.ts    # SIGTERM/SIGINT handler
 │   └── playwright-tester.ts    # Playwright utility (for web app evaluation)
 ├── agents/
@@ -180,6 +200,8 @@ It reads `.harness/` state files and runs automated checks (build, test, lint, r
 npm run build          # Compile TypeScript
 npm run dev            # Watch mode
 npm run start          # Run the CLI
+npm test               # Run all tests (vitest)
+npm run test:coverage  # Run tests with coverage report
 ```
 
 ## License

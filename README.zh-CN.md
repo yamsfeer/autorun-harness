@@ -58,13 +58,13 @@
 ### 前置条件
 
 - Node.js 18+
-- 通过环境变量设置 API 密钥：
+- 通过 `provider` 命令配置 AI 服务提供商（框架统一管理 API 密钥和端点，无需手动设置环境变量）：
   ```bash
-  export ANTHROPIC_AUTH_TOKEN="sk-ant-..."
-  # 可选：自定义 Base URL 和模型
-  export ANTHROPIC_BASE_URL="https://api.anthropic.com"
-  export ANTHROPIC_MODEL="claude-sonnet-4-20250514"
+  # 添加第一个提供商
+  node dist/index.js provider --add --name my-provider --token "your-token" --url "https://api.anthropic.com" --model "claude-sonnet-4-20250514"
   ```
+
+  详见下方[多服务提供商支持](#多服务提供商支持)，了解如何添加不同 AI 厂商（Anthropic、智谱 GLM、字节 ARK、OpenAI 兼容接口等）的提供商，以及在达到频率限制时自动切换。
 
 ### 安装
 
@@ -98,6 +98,9 @@ node dist/index.js run ./my-project
 
 # 限制 5 个任务 + Token 预算
 node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
+
+# 继续之前中断的执行
+node dist/index.js run ./my-project --continue
 ```
 
 **管理 AI 提供商：**
@@ -106,12 +109,27 @@ node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
 # 添加提供商
 node dist/index.js provider --add --name glm --token "your-token" --url "https://open.bigmodel.cn/api/anthropic" --model "GLM-4.7"
 
-# 列出所有提供商
+# 列出所有提供商及其状态
 node dist/index.js provider --list
 
 # 切换到指定提供商
 node dist/index.js provider --switch glm
+
+# 删除提供商
+node dist/index.js provider --remove glm
 ```
+
+### 多服务提供商支持
+
+框架支持任何 Anthropic 兼容的 API 端点。提供商配置全局存储在 `~/.config/autorun-harness/providers/`，作为唯一事实来源——Claude Agent SDK 从 `process.env` 读取提供商设置，框架自动写入。
+
+**支持的提供商包括：**
+- **Anthropic** — 默认 API
+- **智谱 GLM** — 通过 `https://open.bigmodel.cn/api/anthropic`
+- **字节跳动 ARK** — 通过 `https://ark.cn-beijing.volces.com/api/coding`
+- **OpenAI 兼容接口** — 任何提供 Anthropic 兼容 API 的服务
+
+**自动切换：** 当提供商遇到频率限制（429）或用量上限时，框架自动切换到下一个可用提供商。频率限制的提供商 1 小时后恢复（冷却期），用量达上限的提供商 24 小时后恢复——均为按需检查而非定时器。
 
 ## 项目状态
 
@@ -125,6 +143,7 @@ node dist/index.js provider --switch glm
 ├── costs.json             # Token 使用记录
 ├── failure.md             # 错误收集和模式分析
 ├── logs/                  # 结构化 JSON 日志
+├── screenshots/           # Playwright 评估截图
 └── reports/               # 每个任务/尝试的评估报告
     └── evaluator_report_<task-id>_<attempt>.json
 ```
@@ -153,6 +172,7 @@ src/
 │   ├── cost-tracker.ts         # Token 使用追踪和预算控制
 │   ├── failure-collector.ts    # 错误收集和模式分析
 │   ├── provider-manager.ts     # 多提供商池化管理
+│   ├── message-handler.ts      # 代理消息过滤和格式化输出
 │   ├── graceful-shutdown.ts    # SIGTERM/SIGINT 处理
 │   └── playwright-tester.ts    # Playwright 工具（Web 应用评估）
 ├── agents/
@@ -182,6 +202,8 @@ prompts/
 npm run build          # 编译 TypeScript
 npm run dev            # 监听模式
 npm run start          # 运行 CLI
+npm test               # 运行所有测试（vitest）
+npm run test:coverage  # 运行测试并生成覆盖率报告
 ```
 
 ## 许可证

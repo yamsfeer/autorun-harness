@@ -1,6 +1,4 @@
-# CODEBUDDY.md
-
-This file provides guidance to CodeBuddy Code when working with code in this repository.
+# AGENTS.md
 
 ## 项目概述
 
@@ -26,6 +24,19 @@ node dist/index.js init <project-dir> --text "描述需求"
 
 # 执行任务循环
 node dist/index.js run <project-dir> --max-tasks 10
+
+# 继续中断的执行
+node dist/index.js run <project-dir> --continue
+
+# 管理提供商
+node dist/index.js provider --add --name <n> --token <t> --url <u> --model <m>
+node dist/index.js provider --list
+node dist/index.js provider --switch <name>
+node dist/index.js provider --remove <name>
+
+# 运行测试
+npm test
+npm run test:coverage
 ```
 
 ## 核心架构
@@ -60,24 +71,34 @@ node dist/index.js run <project-dir> --max-tasks 10
 
 ```
 src/
-├── index.ts              # CLI 入口，定义 init/run 命令
-├── types/index.ts        # 核心类型定义（Task, TaskList, EvaluatorReport 等）
+├── index.ts                    # CLI 入口（init / run / provider 命令）
+├── types/
+│   ├── index.ts                # 核心类型定义（Task, TaskList, EvaluatorReport 等）
+│   └── quality.ts              # 质量保障类型（Cost, Error, Provider, Logger 等）
 ├── core/
-│   ├── orchestrator.ts   # 主控编排器，协调执行流程
-│   ├── state-manager.ts  # 状态管理，读写 .harness/ 目录下的文件
-│   ├── evaluator.ts      # 评估器，验收开发工作
-│   └── playwright-tester.ts  # Playwright 工具类（用于 Web 应用测试）
+│   ├── orchestrator.ts         # 主控编排器，依赖注入架构，协调执行流程
+│   ├── state-manager.ts        # 状态管理，读写 .harness/ 目录下的文件
+│   ├── evaluator.ts            # 评估器，验收开发工作
+│   ├── error-handler.ts        # 错误分类、重试逻辑（指数退避）、提供商切换判断
+│   ├── cost-tracker.ts         # Token 使用追踪和预算控制
+│   ├── failure-collector.ts    # 错误收集和模式分析，生成 failure.md
+│   ├── provider-manager.ts     # 多提供商池化管理，静态配置与运行时状态分离
+│   ├── message-handler.ts      # 代理消息过滤和格式化控制台输出
+│   ├── graceful-shutdown.ts    # SIGTERM/SIGINT 信号处理，保存任务状态
+│   └── playwright-tester.ts    # Playwright 工具类（用于 Web 应用测试）
 ├── agents/
-│   ├── loader.ts         # 加载代理提示词
-│   └── index.ts          # 导出工厂函数
+│   ├── loader.ts               # 加载代理提示词
+│   └── index.ts                # 导出工厂函数
 └── commands/
-    ├── init.ts           # init 命令实现
-    └── run.ts            # run 命令实现
+    ├── init.ts                 # init 命令实现
+    ├── run.ts                  # run 命令实现
+    └── provider.ts             # provider 命令实现
 
 prompts/
-├── planner.md            # 规划器提示词
-├── generator.md          # 生成器提示词
-└── evaluator.md          # 评估器提示词
+├── planner-full.md             # 规划器提示词（完整模式）
+├── planner-simple.md           # 规划器提示词（简单模式）
+├── generator.md                # 生成器提示词
+└── evaluator.md                # 评估器提示词
 ```
 
 ## 状态文件结构
@@ -89,6 +110,10 @@ prompts/
 ├── spec.md           # 产品规格文档（规划器生成）
 ├── tasks.json        # 任务列表，包含状态和验收标准
 ├── progress.txt      # 执行进度日志
+├── costs.json        # Token 使用记录
+├── failure.md        # 错误收集和模式分析
+├── logs/             # 结构化 JSON 日志（按天分文件）
+├── screenshots/      # Playwright 评估截图
 └── reports/          # 评估报告目录
     └── evaluator_report_<task-id>_<attempt>.json
 ```
@@ -113,6 +138,39 @@ pending → in_progress → completed
 - 使用 `fileURLToPath(import.meta.url)` 获取 `__dirname`
 - 使用 `import { promisify } from 'util'` 替代 `util.promisify`
 
+## 多提供商管理
+
+框架支持多个 AI 服务提供商的池化管理，配置文件是唯一事实来源：
+
+- **全局配置位置**：`~/.config/autorun-harness/providers/*.json`（每个提供商一个文件）
+- **运行时状态**：`~/.config/autorun-harness/providers/.state.json`（共享状态文件）
+- **环境变量传递**：ProviderManager 启动时将当前提供商配置写入 `process.env`，Claude Agent SDK 子进程继承
+
+**提供商状态**：`active`（当前使用）→ `rate_limited`（429，1 小时冷却）→ `unavailable`（用量上限，24 小时冷却）→ `available`（冷却后恢复）
+
+**按需恢复**：不使用定时器，在 `initialize()`、`getAvailableProviders()`、`switchToNext()` 时检查冷却期是否已过
+
+**类型定义**：
+- `ProviderStaticConfig`：name, authToken, baseUrl, model, notes
+- `ProviderRuntimeState`：status, lastUsed, rateLimitedAt, unavailableAt
+- `AIProvider` = ProviderStaticConfig & ProviderRuntimeState
+- `ProviderStateFile`：currentProvider, totalSwitches, providers map
+
+## Orchestrator 依赖注入
+
+Orchestrator 采用依赖注入架构（可选 `deps` 参数），支持测试时注入 mock 对象：
+
+```typescript
+// 生产代码：不传 deps，走默认创建
+const orchestrator = new Orchestrator(projectDir);
+
+// 测试代码：注入 mock
+const orchestrator = new Orchestrator('/tmp/test', {
+  stateManager: mockStateManager as any,
+  evaluator: mockEvaluator as any,
+});
+```
+
 ## 评估器评分体系
 
 | 维度 | 权重 | 评估内容 |
@@ -126,8 +184,10 @@ pending → in_progress → completed
 
 ## 测试说明
 
+- **框架自身测试**：293 个测试用例，覆盖所有核心模块（vitest）
 - **CLI 应用测试**：评估器使用 Bash 命令直接运行程序验证功能
 - **Web 应用测试**：评估器使用 Playwright 进行浏览器自动化测试
+- **依赖注入测试**：Orchestrator 通过 DI 注入 mock，实现内存中的快速单元测试
 
 ## 评估工具
 

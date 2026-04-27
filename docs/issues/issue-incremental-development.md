@@ -98,6 +98,6 @@ PRD → Planner → spec + tasks → Generator → Evaluator
 
 ## 相关文档
 
-- `docs/improvement-plan.md`
-- `docs/known-issues.md`
+- `docs/issues-4-improvement-plan.md`
+- `docs/optmize.md`
 - `docs/长期运行代理框架设计.md`

@@ -16,6 +16,10 @@ Phase 2 (质量保障) ✅
 ├── 日志系统 ✅
 ├── 多服务提供商管理 ✅
 ├── 目录结构规范 ✅
+├── 提供商状态分离与冷却恢复 ✅
+├── Bug-001~006 修复 ✅
+├── Orchestrator 依赖注入重构 ✅
+├── 测试基础设施 (vitest, 293 个用例) ✅
 └── 人工介入接口 ❌
 
 Phase 3 (能力增强)
@@ -135,7 +139,7 @@ Phase 4 (持续优化)
   ```
 - **相关文件**：
   - `src/commands/init.ts` — 创建目录结构
-  - `prompts/planner.md` — 生成文档结构
+  - `prompts/planner-full.md` — 生成文档结构
 
 ### 8. 日志系统 ✅
 - **描述**：统一的日志记录和查看系统
@@ -173,10 +177,60 @@ Phase 4 (持续优化)
   - 自动切换逻辑
   - CLI 命令：`autorun-harness provider --add/--list/--switch`
 
-### 11. 人工介入接口
+### 11. 提供商状态分离与冷却恢复 ✅
+- **描述**：将提供商的静态配置与运行时状态分离，实现冷却期按需恢复
+- **实现状态**：已完成
+- **相关文件**：`src/core/provider-manager.ts`
+- **功能**：
+  - 静态配置：`~/.config/autorun-harness/providers/*.json`
+  - 运行时状态：`~/.config/autorun-harness/providers/.state.json`
+  - rate_limited 1 小时冷却，unavailable 24 小时冷却
+  - 按需检查恢复（非定时器），进程重启后也能正确判断
+  - 修复 handleUsageLimit bug（状态覆盖问题）
+
+### 12. Bug-001~006 修复 ✅
+- **描述**：从三个真实项目中发现的系统性 bug 的修复
+- **实现状态**：已完成
+- **详细报告**：`docs/issue-bug-report.md`
+- **修复内容**：
+  - Bug-001：评估器通过阈值逻辑错误（强制修正 final_decision）
+  - Bug-002：进程中断导致任务状态不一致（优雅关闭保存状态）
+  - Bug-003：Generator 隐藏异常（改进错误信息）
+  - Bug-004：评估器未更新 AC 状态（回写到 tasks.json）
+  - Bug-005：评估器自身崩溃被误判为代码不合格（evaluator_error 标记）
+  - Bug-006：下游任务因错误上游状态被阻塞（outputs 文件存在即视为依赖满足）
+
+### 13. Orchestrator 依赖注入重构 ✅
+- **描述**：将 Orchestrator 从硬编码依赖改为依赖注入架构
+- **实现状态**：已完成
+- **相关文件**：`src/core/orchestrator.ts`
+- **详细文档**：`docs/orchestrator-refactor.md`
+- **改动**：
+  - 构造函数增加可选 `deps` 参数
+  - 生产代码不传 deps，行为完全一致
+  - 测试代码注入 mock，实现内存中快速测试
+  - 所有业务方法零改动
+
+### 14. 测试基础设施 ✅
+- **描述**：基于 vitest 的测试框架，293 个测试用例
+- **实现状态**：已完成
+- **相关文件**：`tests/` 目录
+- **覆盖模块**：
+  - error-handler.ts — 错误分类、重试、超时
+  - message-handler.ts — 消息过滤和格式化
+  - state-manager.ts — 状态读写、依赖检查
+  - evaluator.ts — 阈值校验、AC 状态回写
+  - orchestrator.ts — 完整主循环测试
+  - commands/ — init 和 run 命令测试
+
+### 15. 人工介入接口
 - **描述**：当任务标记为 needs_human 时的处理机制
 - **用途**：让人类开发者介入修复
-- **相关文件**：`src/human_intervention.ts`
+- **相关文件**：`src/human_intervention.ts`（待创建）
+- **功能**：
+  - 通知机制（邮件/Webhook）
+  - 人工修复入口
+  - 恢复自动执行
 - **功能**：
   - 通知机制（邮件/Webhook）
   - 人工修复入口
@@ -346,5 +400,5 @@ Phase 4 (持续优化)
 ---
 
 *创建日期：2026-04-10*
-*最后更新：2026-04-10*
-*状态：Phase 2 基本完成，待实现人工介入接口*
+*最后更新：2026-04-27*
+*状态：Phase 2 基本完成（含测试基础设施），待实现人工介入接口*

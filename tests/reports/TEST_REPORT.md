@@ -1,6 +1,6 @@
 # Autorun Harness 测试报告
 
-> 生成时间: 2026-04-25
+> 生成时间: 2026-04-27
 > 测试框架: Vitest v4.1.5
 > 覆盖率工具: @vitest/coverage-v8
 
@@ -10,15 +10,15 @@
 
 | 指标 | 数值 |
 |------|------|
-| 测试文件 | 5 个 |
-| 总测试数 | 106 个 |
-| 通过 | 106 个 |
+| 测试文件 | 17 个 |
+| 总测试数 | 293 个 |
+| 通过 | 293 个 |
 | 失败 | 0 个 |
 | 代码总行数 | 1,178 行 |
-| 语句覆盖率 | 35.62% (430/1207) |
-| 分支覆盖率 | 36.55% (231/632) |
-| 函数覆盖率 | 39.90% (81/203) |
-| 行覆盖率 | 35.65% (420/1178) |
+| 语句覆盖率 | 91.13% (1100/1207) |
+| 分支覆盖率 | 81.96% (518/632) |
+| 函数覆盖率 | 89.16% (181/203) |
+| 行覆盖率 | 91.08% (1073/1178) |
 
 ---
 
@@ -28,26 +28,26 @@
 
 | 模块 | 文件 | 语句 | 分支 | 函数 | 行 | 测试数 |
 |------|------|------|------|------|-----|--------|
+| 初始化命令 | `commands/init.ts` | 100% | 96.96% | 100% | 100% | 16 |
+| Provider 命令 | `commands/provider.ts` | 100% | 95% | 100% | 100% | 12 |
+| 运行命令 | `commands/run.ts` | 100% | 97.1% | 100% | 100% | 8 |
 | 错误处理 | `error-handler.ts` | 95.40% | 94.73% | 100% | 95.29% | 38 |
-| 消息处理 | `message-handler.ts` | 96.55% | 84.05% | 100% | 98.79% | 24 |
-| 状态管理 | `state-manager.ts` | 95.50% | 86.11% | 100% | 96.42% | 20 |
-| 编排器 | `orchestrator.ts` | 61.67% | 40.65% | 52.38% | 61.94% | 12 |
-| 评估器 | `evaluator.ts` | 41.42% | 54.54% | 83.33% | 39.70% | 12 |
+| 评估器 | `evaluator.ts` | 100% | 84.84% | 100% | 100% | 19 |
+| 成本追踪 | `cost-tracker.ts` | 100% | 90.9% | 100% | 100% | 13 |
+| 错误收集 | `failure-collector.ts` | 98.75% | 86.11% | 100% | 98.66% | 14 |
+| 优雅关闭 | `graceful-shutdown.ts` | 100% | 87.5% | 100% | 100% | 8 |
+| 日志系统 | `logger.ts` | 97.87% | 91.66% | 85.71% | 97.87% | 23 |
+| 消息处理 | `message-handler.ts` | 97.7% | 85.5% | 100% | 98.79% | 24 |
+| 状态管理 | `state-manager.ts` | 95.5% | 86.11% | 100% | 96.42% | 20 |
+| 编排器 | `orchestrator.ts` | 92.51% | 76.42% | 95.23% | 92.47% | 12 |
+| 提供商管理 | `provider-manager.ts` | 94.47% | 85.54% | 100% | 94.3% | 31 |
+| Agent 加载器 | `agents/loader.ts` | 84.61% | 71.42% | 83.33% | 84.61% | — |
 
 ### 零覆盖的模块
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-| 初始化命令 | `commands/init.ts` | 调用 Planner Agent SDK |
-| 运行命令 | `commands/run.ts` | CLI 胶水代码 |
-| Provider 命令 | `commands/provider.ts` | CLI 交互 |
-| 成本追踪 | `core/cost-tracker.ts` | Token 记录与预算 |
-| 错误收集 | `core/failure-collector.ts` | failure.md 生成 |
-| 日志系统 | `core/logger.ts` | JSON 结构化日志 |
-| Playwright 测试 | `core/playwright-tester.ts` | 浏览器自动化 |
-| 优雅关闭 | `core/graceful-shutdown.ts` | 信号处理 |
-| 提供商管理 | `core/provider-manager.ts` | 多提供商切换 |
-| Agent 加载器 | `agents/loader.ts` | Prompt 文件加载 |
+| Playwright 测试 | `core/playwright-tester.ts` | 浏览器自动化工具类，需要真实浏览器环境 |
 
 ---
 
@@ -56,8 +56,8 @@
 | Bug ID | 修复文件 | 测试覆盖 | 测试位置 |
 |--------|----------|----------|----------|
 | Bug-001 阈值逻辑错误 | `evaluator.ts` | ✅ 已覆盖 | `evaluator.test.ts` — validateReportThreshold |
-| Bug-002 中断状态保存 | `orchestrator.ts` | ⚠️ 间接覆盖 | `orchestrator.test.ts` — 验证状态流转 |
-| Bug-003 未知错误信息 | `message-handler.ts` | ✅ 已覆盖 | `message-handler.test.ts` — handleResult 多分支 |
+| Bug-002 中断状态保存 | `orchestrator.ts` | ✅ 已覆盖 | `graceful-shutdown.test.ts` + `orchestrator.test.ts` |
+| Bug-003 未知错误信息 | `error-handler.ts` + `message-handler.ts` | ✅ 已覆盖 | `error-handler.test.ts` + `message-handler.test.ts` |
 | Bug-004 AC 状态未回写 | `evaluator.ts` | ✅ 已覆盖 | `evaluator.test.ts` — updateTaskAcceptanceStatus |
 | Bug-005 评估器崩溃误判 | `evaluator.ts` + `orchestrator.ts` | ✅ 已覆盖 | `evaluator.test.ts` — evaluator_error 标记；`orchestrator.test.ts` — 不计重试 |
 | Bug-006 下游任务阻塞 | `state-manager.ts` | ✅ 已覆盖 | `state-manager.test.ts` — outputs 备选依赖检查 |
@@ -84,28 +84,28 @@
 
 ## 五、未覆盖的风险点
 
-### 高风险（核心业务逻辑无测试保护）
+### 中风险
 
-1. **`orchestrator.ts` initialize() 方法** — 初始化阶段调用 Planner Agent 的完整流程
-2. **`orchestrator.ts` runGenerator() 方法** — Generator Agent 调用、消息流处理、token 记录
-3. **`commands/init.ts`** — 项目初始化命令的端到端流程
-4. **`provider-manager.ts`** — 提供商切换的完整状态机
+1. **`orchestrator.ts` initialize() 方法** — 初始化阶段调用 Planner Agent 的完整流程（依赖真实 Agent SDK 调用）
+2. **`orchestrator.ts` runGenerator() 方法** — Generator Agent 调用、消息流处理（部分通过 DI mock 覆盖）
+3. **`playwright-tester.ts`** — Web 应用评估辅助，需要真实浏览器环境
 
-### 中风险（质量保障模块无测试）
+### 低风险
 
-5. **`cost-tracker.ts`** — 预算超限时应抛出错误中断执行
-6. **`failure-collector.ts`** — 失败记录收集和 Markdown 生成
-7. **`logger.ts`** — 日志级别过滤和文件输出
-
-### 低风险（边缘功能）
-
-8. **`playwright-tester.ts`** — Web 应用评估辅助
-9. **`graceful-shutdown.ts`** — 信号处理（难以在单测中模拟）
-10. **`commands/provider.ts`** — CLI 配置管理
+4. **`agents/loader.ts`** — Prompt 文件加载，84.61% 覆盖率
 
 ---
 
-## 六、测试执行命令
+## 六、端到端测试
+
+| 测试文件 | 测试数 | 说明 |
+|----------|--------|------|
+| `tests/e2e/provider.e2e.test.ts` | 9 | 提供商管理端到端流程 |
+| `tests/e2e/init-simple.e2e.test.ts` | 6 | 简单模式初始化端到端流程 |
+
+---
+
+## 七、测试执行命令
 
 ```bash
 # 运行全部测试
@@ -116,8 +116,14 @@ npm run test:watch
 
 # 生成覆盖率报告
 npm run test:coverage
+
+# 交互式测试界面
+npm run test:ui
+
+# 预览覆盖率 HTML 报告
+npm run test:coverage:preview
 ```
 
 ---
 
-*本报告由 Vitest 自动生成，结合手动整理。*
+*本报告基于 Vitest 自动运行结果，结合手动整理。*
