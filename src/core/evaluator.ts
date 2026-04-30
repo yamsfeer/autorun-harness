@@ -97,6 +97,7 @@ ${spec}
         options: {
           cwd: this.projectDir,
           systemPrompt: evaluatorDef.prompt,
+          model: process.env.ANTHROPIC_MODEL,
           allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
           permissionMode: 'acceptEdits',
           maxTurns: 15,

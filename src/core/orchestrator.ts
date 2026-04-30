@@ -161,6 +161,7 @@ export class Orchestrator {
         options: {
           cwd: this.projectDir,
           systemPrompt: plannerDef.prompt,
+          model: this.providerManager.getCurrentProvider()?.model,
           allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
           permissionMode: 'acceptEdits',
           maxTurns: options.mode === 'simple' ? 15 : 30,
@@ -673,6 +674,7 @@ ${spec}
       options: {
         cwd: this.projectDir,
         systemPrompt: generatorDef.prompt,
+        model: this.providerManager.getCurrentProvider()?.model,
         allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'acceptEdits',
         maxTurns: 20,
