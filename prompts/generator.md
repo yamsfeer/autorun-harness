@@ -23,9 +23,9 @@
 ## 输出
 
 - 创建或修改的代码文件
-- 更新后的 tasks.json（状态变更）
-- 更新后的 progress.txt（新增进度记录）
-- Git commit
+- Git commit（描述清晰的 commit message）
+
+**重要：你只需要编写代码并提交 git commit。任务状态更新和进度记录由 harness 框架自动完成，请勿编辑 .harness/ 目录下的任何文件（tasks.json、progress.txt 等）。**
 
 ## 工作流程
 
@@ -85,11 +85,11 @@
 ### 步骤 5：提交变更
 
 ```
-1. git add .
-2. git commit -m "feat: {任务标题}"
-3. 更新 tasks.json 中的任务状态
-4. 追加 progress.txt 进度记录
+1. git add <修改的代码文件>    （注意：不要 add .harness/ 目录下的文件）
+2. git commit -m "feat: {任务标题} ({任务ID})"
 ```
+
+任务状态更新和进度记录由 harness 框架自动处理，无需手动操作。
 
 ## 不同场景的处理
 
@@ -251,6 +251,8 @@ API 原则：
 5. ❌ 不要提交无法运行的代码
 6. ❌ 不要硬编码敏感信息（密码、API Key）
 7. ❌ 不要跳过错误处理
+8. ❌ 不要编辑 .harness/ 目录下的任何文件（tasks.json、progress.txt 等，由框架管理）
+9. ❌ 不要使用 git add . 或 git add -A，只添加你实际修改的代码文件
 ```
 
 ## 必须行为
@@ -259,9 +261,8 @@ API 原则：
 1. ✓ 必须遵循 spec.md 的设计约束
 2. ✓ 必须确保所有验收标准可被测试
 3. ✓ 必须确保应用可以正常启动
-4. ✓ 必须提交 git commit
-5. ✓ 必须更新 progress.txt
-6. ✓ 必须处理边界情况和错误
+4. ✓ 必须提交 git commit（只包含代码文件，不包含 .harness/ 目录）
+5. ✓ 必须处理边界情况和错误
 ```
 
 ## 修复迭代特别说明
@@ -317,13 +318,12 @@ API 原则：
 - 每次修复后验证是否解决
 ```
 
-### 3. 更新 attempts
+### 3. 理解尝试次数
 
 ```
-每次修复迭代后：
-- tasks.json 中的 attempts 会增加
-- 如果 attempts >= 3，任务将被跳过
-- 所以要珍惜每次修复机会，尽量一次性修复所有问题
+每次修复迭代后，harness 框架会自动更新 attempts 计数。
+如果 attempts >= 3，任务将被标记为 needs_human。
+所以要珍惜每次修复机会，尽量一次性修复所有问题。
 ```
 
 ## 示例交互
@@ -373,13 +373,11 @@ API 原则：
 4. 点击登录，验证跳转
 
 提交：
-git add .
-git commit -m "feat: 实现用户登录功能"
-
-更新：
-- tasks.json: T002.status = "completed"
-- progress.txt: 追加登录功能实现记录
+git add src/pages/Login.tsx src/api/auth.ts src/App.tsx src/api/index.ts
+git commit -m "feat: 实现用户登录功能 (T002)"
 ```
+
+> 注意：tasks.json 和 progress.txt 由 harness 框架自动更新，不需要你处理。
 
 ## 现在开始
 

@@ -105,12 +105,11 @@ ${spec}
           maxTurns: 50,
           ...(provider ? {
             model: provider.model,
-            env: {
-              ...process.env,
-              ANTHROPIC_AUTH_TOKEN: provider.authToken,
-              ANTHROPIC_BASE_URL: provider.baseUrl,
-              ANTHROPIC_MODEL: provider.model,
-            },
+            env: Object.fromEntries(
+              Object.entries(process.env).filter(
+                ([k, v]) => v !== undefined && !k.startsWith('ANTHROPIC_')
+              )
+            ),
           } : {}),
         },
       });

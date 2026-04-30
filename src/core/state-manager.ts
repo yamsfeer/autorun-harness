@@ -27,37 +27,63 @@ export class StateManager {
   async loadTasks(): Promise<TaskList> {
     await this.ensureDir();
     const filePath = path.join(this.harnessDir, 'tasks.json');
+    let content: string;
     try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      return JSON.parse(content);
+      content = await fs.readFile(filePath, 'utf-8');
     } catch (error) {
-      // 如果文件不存在，返回空的任务列表
-      return {
-        project: {
-          name: '',
-          version: '1.0.0',
-          created_at: new Date().toISOString(),
-        },
-        tasks: [],
-        statistics: {
-          total: 0,
-          pending: 0,
-          in_progress: 0,
-          completed: 0,
-          blocked: 0,
-          needs_human: 0,
-        },
-      };
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return {
+          project: {
+            name: '',
+            version: '1.0.0',
+            created_at: new Date().toISOString(),
+          },
+          tasks: [],
+          statistics: {
+            total: 0,
+            pending: 0,
+            in_progress: 0,
+            completed: 0,
+            blocked: 0,
+            needs_human: 0,
+          },
+        };
+      }
+      throw error;
+    }
+
+    try {
+      return JSON.parse(content);
+    } catch (parseError) {
+      const message = parseError instanceof Error ? parseError.message : String(parseError);
+      throw new Error(`tasks.json 文件损坏，无法解析 JSON: ${message}`);
     }
   }
 
   /**
-   * 保存任务列表
+   * 保存任务列表（写前备份，写后验证 JSON 完整性）
    */
   async saveTasks(tasks: TaskList): Promise<void> {
     await this.ensureDir();
     const filePath = path.join(this.harnessDir, 'tasks.json');
-    await fs.writeFile(filePath, JSON.stringify(tasks, null, 2), 'utf-8');
+    const content = JSON.stringify(tasks, null, 2);
+
+    // 写入前备份旧文件
+    try {
+      const backupPath = filePath + '.bak';
+      await fs.copyFile(filePath, backupPath);
+    } catch {
+      // 文件不存在时跳过备份
+    }
+
+    await fs.writeFile(filePath, content, 'utf-8');
+
+    // 写后验证 JSON 可解析
+    try {
+      JSON.parse(content);
+    } catch {
+      throw new Error('saveTasks 内部错误：生成的 JSON 无效，任务列表未保存');
+    }
   }
 
   /**

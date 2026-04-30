@@ -234,25 +234,29 @@ export function applyProviderConfig(config: {
   process.env.ANTHROPIC_AUTH_TOKEN = config.authToken;
   process.env.ANTHROPIC_BASE_URL = config.baseUrl;
   process.env.ANTHROPIC_MODEL = config.model;
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = config.model;
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = config.model;
+  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = config.model;
 
   console.log(`📡 已切换到提供商: ${config.model} @ ${config.baseUrl}`);
 }
 
 /**
- * 将 provider 配置写入用户级 ~/.claude/settings.local.json
- * 做 merge：保留已有的其他设置，只更新 ANTHROPIC_* 三个 env 变量
+ * 将 provider 配置写入用户级 ~/.claude/settings.json
+ * 做 merge：保留已有的其他设置（如 cc-switch 写入的 skipDangerousModePermissionPrompt 等），只更新 ANTHROPIC_* env 变量
  *
- * 用户级 settings.local.json 优先级高于用户级 settings.json，
- * 但低于项目级 settings.local.json，正好匹配需求：
- * - 全局切换 provider → 更新用户级 local
- * - 项目有自己的考量 → 项目级 local 最高优先，不受影响
+ * 注意：之前尝试写入 settings.local.json，但测试发现 Claude CLI 子进程不读取该文件
+ * （或 process.env 优先级高于它），直接写 settings.json 才能让 CLI 子进程正确加载。
  */
 export async function writeProviderToUserLocalSettings(envConfig: {
   ANTHROPIC_AUTH_TOKEN: string;
   ANTHROPIC_BASE_URL: string;
   ANTHROPIC_MODEL: string;
+  ANTHROPIC_DEFAULT_SONNET_MODEL?: string;
+  ANTHROPIC_DEFAULT_OPUS_MODEL?: string;
+  ANTHROPIC_DEFAULT_HAIKU_MODEL?: string;
 }): Promise<void> {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.local.json');
+  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
   const claudeDir = path.dirname(settingsPath);
 
   // 读取已有设置，做 merge
@@ -272,6 +276,9 @@ export async function writeProviderToUserLocalSettings(envConfig: {
       ANTHROPIC_AUTH_TOKEN: envConfig.ANTHROPIC_AUTH_TOKEN,
       ANTHROPIC_BASE_URL: envConfig.ANTHROPIC_BASE_URL,
       ANTHROPIC_MODEL: envConfig.ANTHROPIC_MODEL,
+      ANTHROPIC_DEFAULT_SONNET_MODEL: envConfig.ANTHROPIC_DEFAULT_SONNET_MODEL || envConfig.ANTHROPIC_MODEL,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: envConfig.ANTHROPIC_DEFAULT_OPUS_MODEL || envConfig.ANTHROPIC_MODEL,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: envConfig.ANTHROPIC_DEFAULT_HAIKU_MODEL || envConfig.ANTHROPIC_MODEL,
     },
   };
 

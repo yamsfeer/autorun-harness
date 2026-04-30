@@ -440,7 +440,14 @@ export class ProviderManager {
    * 获取当前提供商的连接配置
  * 唯一事实来源：provider 配置文件
    */
-  getEnvConfig(): { ANTHROPIC_AUTH_TOKEN: string; ANTHROPIC_BASE_URL: string; ANTHROPIC_MODEL: string } | null {
+  getEnvConfig(): {
+    ANTHROPIC_AUTH_TOKEN: string;
+    ANTHROPIC_BASE_URL: string;
+    ANTHROPIC_MODEL: string;
+    ANTHROPIC_DEFAULT_SONNET_MODEL: string;
+    ANTHROPIC_DEFAULT_OPUS_MODEL: string;
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: string;
+  } | null {
     const provider = this.getCurrentProvider();
     if (!provider) return null;
 
@@ -448,6 +455,9 @@ export class ProviderManager {
       ANTHROPIC_AUTH_TOKEN: provider.authToken,
       ANTHROPIC_BASE_URL: provider.baseUrl,
       ANTHROPIC_MODEL: provider.model,
+      ANTHROPIC_DEFAULT_SONNET_MODEL: provider.model,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: provider.model,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: provider.model,
     };
   }
 

@@ -444,19 +444,22 @@ ${docList}
 
   /**
    * 获取当前提供商的 query() 选项（model + env）
-   * 确保模型和它的 baseUrl/apiKey 作为一套完整配置传入
+   * 不传递 ANTHROPIC_* 环境变量，让 CLI 子进程从 ~/.claude/settings.json 读取配置
+   * （因为 process.env 优先级高于 settings 文件，会被错误的旧值覆盖）
    */
   private getProviderQueryOptions(): { model?: string; env?: Record<string, string> } {
     const provider = this.providerManager.getCurrentProvider();
     if (!provider) return {};
+    // 清除继承的 ANTHROPIC_* 环境变量，CLI 从 settings.json 读
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && !k.startsWith('ANTHROPIC_')) {
+        env[k] = v;
+      }
+    }
     return {
       model: provider.model,
-      env: {
-        ...process.env as Record<string, string>,
-        ANTHROPIC_AUTH_TOKEN: provider.authToken,
-        ANTHROPIC_BASE_URL: provider.baseUrl,
-        ANTHROPIC_MODEL: provider.model,
-      },
+      env,
     };
   }
 
