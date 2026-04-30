@@ -52,6 +52,7 @@
 - **成本追踪** — 按代理和任务记录 Token 使用量，支持预算限制和预警
 - **错误收集分析** — 错误记录到 `failure.md`，自动分析模式并提供修复建议
 - **优雅关闭** — 捕获 SIGTERM/SIGINT 信号，保存进行中的任务状态
+- **文档同步** — `sync` 命令将 `docs/` 作为唯一事实来源，自动检测文档与任务/代码的不一致并修正
 
 ## 快速开始
 
@@ -101,6 +102,19 @@ node dist/index.js run ./my-project --max-tasks 5 --max-tokens 500000
 
 # 继续之前中断的执行
 node dist/index.js run ./my-project --continue
+```
+
+**同步文档与任务/代码：**
+
+```bash
+# 仅检查，输出差异报告
+node dist/index.js sync ./my-project
+
+# 自动修复可处理的问题
+node dist/index.js sync ./my-project --fix
+
+# 指定自定义文档目录
+node dist/index.js sync ./my-project --docs ./custom-docs
 ```
 
 **管理 AI 提供商：**
@@ -156,16 +170,47 @@ pending → in_progress → completed
                   ↘ pending     (评估失败，携带反馈重试)
 ```
 
+## 文档同步（`sync`）
+
+**核心理念：`docs/` 是唯一的事实来源（Single Source of Truth）。** 用户手动维护 `docs/` 下的文档，系统自动将 `tasks.json` 和代码与之对齐。
+
+### 适用场景
+
+| 场景 | 说明 |
+|------|------|
+| **需求变更** | 中途改了功能要求 → `docs/` 变了，`tasks.json` 没跟上 → 运行 `sync` 自动更新任务 |
+| **执行跑偏** | Generator 生成的代码与文档不一致 → `sync` 检测并标记为需要修复 |
+| **Brownfield** | 已有项目通过 Archaeology Agent 生成了 `docs/` → 用 `sync` 验证任务/代码是否对齐 |
+| **增量开发** | 新增功能、删除旧功能 → 更新 `docs/` 后运行 `sync`，系统自动生成/移除对应任务 |
+
+### 检测能力
+
+`sync` 检查三种对齐关系：
+
+| 检查 | 不一致 | 处理方式 |
+|------|--------|---------|
+| docs → tasks | 文档描述了某功能，但 tasks.json 无对应任务 | → 自动生成新任务 |
+| tasks → docs | tasks.json 有已完成任务在文档中找不到依据 | → 自动移除任务 |
+| code → tasks | 已完成任务的关键产出文件缺失 | → 生成补充任务 |
+
+### 使用流程
+
+```
+用户修改 docs/ → sync --check 查看差异 → sync --fix 自动修正 → run 执行新任务
+```
+
 ## 代码结构
 
 ```
 src/
-├── index.ts                    # CLI 入口（init / run / provider 命令）
+├── index.ts                    # CLI 入口（init / run / sync / provider 命令）
 ├── types/
 │   ├── index.ts                # 核心类型（Task, TaskList, EvaluatorReport 等）
-│   └── quality.ts              # 质量保障类型（Cost, Error, Provider 等）
+│   ├── quality.ts              # 质量保障类型（Cost, Error, Provider 等）
+│   └── sync.ts                 # 同步相关类型（DocFeature, SyncReport 等）
 ├── core/
 │   ├── orchestrator.ts         # 主控编排器 — 协调完整流水线
+│   ├── sync-engine.ts          # 同步引擎 — 文档与任务/代码的对齐检查与修复
 │   ├── state-manager.ts        # 读写 .harness/ 状态文件
 │   ├── evaluator.ts            # 评估器代理封装
 │   ├── error-handler.ts        # 错误分类、重试逻辑、提供商切换
@@ -181,6 +226,7 @@ src/
 └── commands/
     ├── init.ts                 # init 命令实现
     ├── run.ts                  # run 命令实现
+    ├── sync.ts                 # sync 命令实现
     └── provider.ts             # provider 命令实现
 
 prompts/

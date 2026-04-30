@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { runCommand } from './commands/run.js';
+import { syncCommand } from './commands/sync.js';
 import { providerCommand } from './commands/provider.js';
 
 const program = new Command();
@@ -16,6 +17,7 @@ program
 典型工作流:
   $ autorun-harness init ./my-app --prd PRD.md   # 从 PRD 初始化项目
   $ autorun-harness run ./my-app                  # 自动执行任务直到完成
+  $ autorun-harness sync ./my-app                 # 同步文档与任务/代码
   $ autorun-harness provider --list               # 查看当前 AI 提供商配置
 
 文档:
@@ -63,6 +65,22 @@ program
   $ autorun-harness run ./my-app --continue             # 从中断处继续
 `)
   .action(runCommand);
+
+program
+  .command('sync')
+  .description('同步检查：将 docs/ 作为唯一事实来源，检测文档与任务/代码的不一致并自动修正')
+  .argument('<project-dir>', '已初始化的项目目录路径')
+  .option('--check', '仅检查模式，输出差异报告（默认）', true)
+  .option('--fix', '自动修复模式，应用可自动处理的修复')
+  .option('--docs <dir>', '文档目录路径（默认: docs）', 'docs')
+  .addHelpText('after', `
+示例:
+  $ autorun-harness sync ./my-app                          # 仅检查，输出差异报告
+  $ autorun-harness sync ./my-app --fix                    # 自动修复可处理的问题
+  $ autorun-harness sync ./my-app --docs ./custom-docs     # 指定自定义文档目录
+  $ autorun-harness sync ./my-app --fix --docs ./docs      # 从指定目录同步并修复
+`)
+  .action(syncCommand);
 
 program
   .command('provider')

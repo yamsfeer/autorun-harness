@@ -195,3 +195,6 @@ export interface RunCommandOptions {
 
 // 导出质量保障相关类型
 export * from './quality.js';
+
+// 导出同步相关类型
+export * from './sync.js';

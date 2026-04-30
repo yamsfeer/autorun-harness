@@ -28,6 +28,10 @@ node dist/index.js run <project-dir> --max-tasks 10
 # 继续中断的执行
 node dist/index.js run <project-dir> --continue
 
+# 同步文档与任务/代码
+node dist/index.js sync <project-dir>        # 检查模式
+node dist/index.js sync <project-dir> --fix  # 修复模式
+
 # 管理提供商
 node dist/index.js provider --add --name <n> --token <t> --url <u> --model <m>
 node dist/index.js provider --list
@@ -58,6 +62,15 @@ npm run test:coverage
 │                                   │                         │
 │                            needs_human (attempts >= 3)      │
 └─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│                   同步阶段（按需触发）                          │
+│                                                             │
+│   docs/ → SyncEngine → 比较 tasks.json / 代码               │
+│                           │                                 │
+│                    差异报告 + 自动修复                        │
+│                    (add_task / remove_task / update_task)    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 **代理职责**：
@@ -67,16 +80,20 @@ npm run test:coverage
 | Generator | 实现功能代码 | 任务详情 + spec.md | 代码变更 |
 | Evaluator | 验收测试、评分反馈 | 任务详情 + 代码状态 | evaluator_report.json |
 
+**SyncEngine 概念**：docs/ 是唯一事实来源。用户手动维护 docs/ 下的 markdown 文档，SyncEngine 在运行时检查文档与 tasks.json 的一致性，自动修复偏移。适用场景：需求变更、代码跑偏、增量开发。
+
 ## 代码结构
 
 ```
 src/
-├── index.ts                    # CLI 入口（init / run / provider 命令）
+├── index.ts                    # CLI 入口（init / run / sync / provider 命令）
 ├── types/
 │   ├── index.ts                # 核心类型定义（Task, TaskList, EvaluatorReport 等）
-│   └── quality.ts              # 质量保障类型（Cost, Error, Provider, Logger 等）
+│   ├── quality.ts              # 质量保障类型（Cost, Error, Provider, Logger 等）
+│   └── sync.ts                 # 同步相关类型（DocFeature, SyncReport 等）
 ├── core/
 │   ├── orchestrator.ts         # 主控编排器，依赖注入架构，协调执行流程
+│   ├── sync-engine.ts          # 同步引擎，将 docs/ 作为唯一事实来源对齐任务/代码
 │   ├── state-manager.ts        # 状态管理，读写 .harness/ 目录下的文件
 │   ├── evaluator.ts            # 评估器，验收开发工作
 │   ├── error-handler.ts        # 错误分类、重试逻辑（指数退避）、提供商切换判断
@@ -92,6 +109,7 @@ src/
 └── commands/
     ├── init.ts                 # init 命令实现
     ├── run.ts                  # run 命令实现
+    ├── sync.ts                 # sync 命令实现
     └── provider.ts             # provider 命令实现
 
 prompts/
@@ -184,7 +202,7 @@ const orchestrator = new Orchestrator('/tmp/test', {
 
 ## 测试说明
 
-- **框架自身测试**：293 个测试用例，覆盖所有核心模块（vitest）
+- **框架自身测试**：314 个测试用例，覆盖所有核心模块（vitest）
 - **CLI 应用测试**：评估器使用 Bash 命令直接运行程序验证功能
 - **Web 应用测试**：评估器使用 Playwright 进行浏览器自动化测试
 - **依赖注入测试**：Orchestrator 通过 DI 注入 mock，实现内存中的快速单元测试
