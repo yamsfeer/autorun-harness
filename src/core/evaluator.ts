@@ -4,6 +4,7 @@ import { Task, EvaluatorReport, AcceptanceCriterion, AcceptanceCriterionStatus }
 import { StateManager } from './state-manager.js';
 import { createMessageHandler, MessageHandler } from './message-handler.js';
 import { createError } from './error-handler.js';
+import { getProviderManager, ProviderManager } from './provider-manager.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -92,15 +93,25 @@ ${spec}
       this.messageHandler.reset();
 
       // 调用评估器 Agent
+      const providerMgr = getProviderManager();
+      const provider = providerMgr.getCurrentProvider();
       const queryResult = query({
         prompt: userPrompt,
         options: {
           cwd: this.projectDir,
           systemPrompt: evaluatorDef.prompt,
-          model: process.env.ANTHROPIC_MODEL,
           allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
           permissionMode: 'acceptEdits',
-          maxTurns: 15,
+          maxTurns: 50,
+          ...(provider ? {
+            model: provider.model,
+            env: {
+              ...process.env,
+              ANTHROPIC_AUTH_TOKEN: provider.authToken,
+              ANTHROPIC_BASE_URL: provider.baseUrl,
+              ANTHROPIC_MODEL: provider.model,
+            },
+          } : {}),
         },
       });
 

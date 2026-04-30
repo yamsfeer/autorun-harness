@@ -15,6 +15,7 @@ import {
   applyProviderConfig,
   formatError,
 } from './error-handler.js';
+import fs from 'fs/promises';
 import path from 'path';
 
 /**
@@ -156,15 +157,16 @@ export class Orchestrator {
       const userPrompt = this.buildUserPrompt(prdContent, projectName, options);
 
       // 调用 Planner Agent
+      const providerOpts = this.getProviderQueryOptions();
       const queryResult = query({
         prompt: userPrompt,
         options: {
           cwd: this.projectDir,
           systemPrompt: plannerDef.prompt,
-          model: this.providerManager.getCurrentProvider()?.model,
           allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
           permissionMode: 'acceptEdits',
           maxTurns: options.mode === 'simple' ? 15 : 30,
+          ...providerOpts,
         },
       });
 
@@ -440,6 +442,24 @@ ${docList}
   }
 
   /**
+   * 获取当前提供商的 query() 选项（model + env）
+   * 确保模型和它的 baseUrl/apiKey 作为一套完整配置传入
+   */
+  private getProviderQueryOptions(): { model?: string; env?: Record<string, string> } {
+    const provider = this.providerManager.getCurrentProvider();
+    if (!provider) return {};
+    return {
+      model: provider.model,
+      env: {
+        ...process.env as Record<string, string>,
+        ANTHROPIC_AUTH_TOKEN: provider.authToken,
+        ANTHROPIC_BASE_URL: provider.baseUrl,
+        ANTHROPIC_MODEL: provider.model,
+      },
+    };
+  }
+
+  /**
    * 打印当前提供商状态（简化版）
    */
   private printProviderStatus(): void {
@@ -454,6 +474,9 @@ ${docList}
   /**
    * 应用当前提供商配置到环境变量
    * 启动时和切换提供商后都会调用
+   *
+   * 同时写入项目级 .claude/settings.local.json 以覆盖用户级 ~/.claude/settings.json
+   * Claude Code CLI 的 settings 优先级：项目 local > 项目 > 用户 local > 用户
    */
   private async applyCurrentProvider(): Promise<void> {
     const envConfig = this.providerManager.getEnvConfig();
@@ -463,6 +486,28 @@ ${docList}
         baseUrl: envConfig.ANTHROPIC_BASE_URL,
         model: envConfig.ANTHROPIC_MODEL,
       });
+
+      // 写入项目级 .claude/settings.local.json，优先级高于 ~/.claude/settings.json
+      // 确保 provider 的 baseUrl/authToken 不被用户全局配置覆盖
+      try {
+        const claudeDir = path.join(this.projectDir, '.claude');
+        await fs.mkdir(claudeDir, { recursive: true });
+        const localSettingsPath = path.join(claudeDir, 'settings.local.json');
+        const localSettings = {
+          env: {
+            ANTHROPIC_AUTH_TOKEN: envConfig.ANTHROPIC_AUTH_TOKEN,
+            ANTHROPIC_BASE_URL: envConfig.ANTHROPIC_BASE_URL,
+            ANTHROPIC_MODEL: envConfig.ANTHROPIC_MODEL,
+          },
+        };
+        await fs.writeFile(localSettingsPath, JSON.stringify(localSettings, null, 2), 'utf-8');
+        this.logger.debug('orchestrator', '已更新项目级 .claude/settings.local.json');
+      } catch (e) {
+        this.logger.warn('orchestrator', '无法写入项目级 .claude/settings.local.json', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+
       const provider = this.providerManager.getCurrentProvider();
       if (provider) {
         console.log(`📡 已切换到提供商: ${provider.name} (${provider.model})`);
@@ -526,9 +571,28 @@ ${docList}
     });
 
     // 如果评估器自身崩溃，不增加尝试次数（Bug-005 修复）
+    // 但有上限保护：连续崩溃3次则标记 needs_human，防止无限循环
     if (report.evaluator_error) {
+      const crashCount = (task as any)._evaluatorCrashCount || 0;
+      const newCrashCount = crashCount + 1;
+      (task as any)._evaluatorCrashCount = newCrashCount;
+
       console.log(`   ❌ 评估器自身崩溃: ${report.summary}`);
-      console.log('   🔄 评估器错误不计入任务重试，将重试评估');
+      console.log(`   🔄 评估器错误不计入任务重试，将重试评估 (${newCrashCount}/3)`);
+
+      if (newCrashCount >= 3) {
+        console.log(`   ⚠️  评估器连续崩溃 ${newCrashCount} 次，标记为需要人工介入`);
+        await this.stateManager.updateTaskStatus(task.id, 'needs_human');
+        await this.stateManager.addTaskNote(task.id, `评估器连续崩溃 ${newCrashCount} 次，需要人工介入`);
+        await this.stateManager.appendProgress({
+          timestamp: new Date().toISOString(),
+          taskId: task.id,
+          status: 'needs_human',
+          details: `评估器连续崩溃 ${newCrashCount} 次，需要人工介入`,
+          errors: [report.summary],
+        });
+        return;
+      }
 
       await this.stateManager.addTaskNote(task.id, `评估器崩溃: ${report.summary}（不计入重试次数）`);
       await this.stateManager.appendProgress({
@@ -669,15 +733,16 @@ ${spec}
     // 重置消息处理器
     this.messageHandler.reset();
 
+    const providerOpts = this.getProviderQueryOptions();
     const queryResult = query({
       prompt: userPrompt,
       options: {
         cwd: this.projectDir,
         systemPrompt: generatorDef.prompt,
-        model: this.providerManager.getCurrentProvider()?.model,
         allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
         permissionMode: 'acceptEdits',
-        maxTurns: 20,
+        maxTurns: 60,
+        ...providerOpts,
       },
     });
 

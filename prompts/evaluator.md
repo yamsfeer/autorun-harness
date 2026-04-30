@@ -50,24 +50,57 @@
 
 ### 步骤 2：执行验收测试
 
-对于每个 acceptance_criteria：
+**关键：批量化测试执行**
 
-```
-for each criterion in acceptance_criteria:
-    for each step in steps:
-        1. 执行步骤描述的操作
-        2. 记录执行结果
-        3. 如果失败：
-           - 记录具体原因
-           - 截图保存证据
-           - 标记该 criterion 为 fail
-           - 可选择继续或停止后续步骤
+你有轮次限制，必须高效使用每一轮。**严禁逐条运行测试命令**，这会浪费轮次导致无法完成评估。
+
+正确做法：**将所有测试步骤合并为一个 Shell 脚本，一次性执行**。
+
+```bash
+cat << 'EOF' > /tmp/eval_tests.sh
+#!/bin/bash
+set -e
+BASE="http://localhost:3000"
+
+# === 测试组 1：创建 ===
+echo "=== TEST 1: POST 创建 ==="
+curl -s -X POST "$BASE/api/xxx" -H "Content-Type: application/json" -d '{...}'
+echo ""
+
+echo "=== TEST 2: POST 缺少必填字段 ==="
+curl -s -X POST "$BASE/api/xxx" -H "Content-Type: application/json" -d '{}'
+echo ""
+
+# === 测试组 2：查询 ===
+echo "=== TEST 3: GET 列表 ==="
+curl -s "$BASE/api/xxx"
+echo ""
+
+echo "=== TEST 4: GET 筛选 ==="
+curl -s "$BASE/api/xxx?type=xxx"
+echo ""
+
+# === 测试组 3：更新 ===
+echo "=== TEST 5: PUT 更新 ==="
+curl -s -X PUT "$BASE/api/xxx/1" -H "Content-Type: application/json" -d '{...}'
+echo ""
+
+# === 测试组 4：删除 ===
+echo "=== TEST 6: DELETE ==="
+curl -s -X DELETE "$BASE/api/xxx/1"
+echo ""
+
+echo "=== ALL TESTS DONE ==="
+EOF
+bash /tmp/eval_tests.sh
 ```
 
 **执行原则**：
 - 必须实际执行，不能只看代码臆断
-- 必须执行每一个步骤，不能跳过
-- 必须验证预期结果，不能"看起来差不多"
+- 所有 API 测试合并到一个脚本，一次 Bash 调用完成
+- 浏览页面测试合并进行：导航→截图→检查元素，在一个 Playwright 脚本中完成
+- 测试完成后立即生成报告，不要再逐条回顾结果
+- 如果测试脚本输出已足够判断，直接基于输出写报告，不要重复验证
 
 ### 步骤 3：代码质量评估
 

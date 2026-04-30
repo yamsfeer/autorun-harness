@@ -135,7 +135,7 @@ node dist/index.js provider --remove glm
 
 ### 多服务提供商支持
 
-框架支持任何 Anthropic 兼容的 API 端点。提供商配置全局存储在 `~/.config/autorun-harness/providers/`，作为唯一事实来源——Claude Agent SDK 从 `process.env` 读取提供商设置，框架自动写入。
+框架支持任何 Anthropic 兼容的 API 端点。提供商配置全局存储在 `~/.config/autorun-harness/providers/`，作为唯一事实来源。
 
 **支持的提供商包括：**
 - **Anthropic** — 默认 API
@@ -144,6 +144,18 @@ node dist/index.js provider --remove glm
 - **OpenAI 兼容接口** — 任何提供 Anthropic 兼容 API 的服务
 
 **自动切换：** 当提供商遇到频率限制（429）或用量上限时，框架自动切换到下一个可用提供商。频率限制的提供商 1 小时后恢复（冷却期），用量达上限的提供商 24 小时后恢复——均为按需检查而非定时器。
+
+**Provider 切换的三层防护机制：**
+
+每个 provider 由 **model** + **baseUrl** + **authToken** 三个参数组成一个完整套件，切换时必须同时替换。只改 model 而沿用旧的 baseUrl 会导致 API 请求发到错误的端点。
+
+框架切换 provider 时通过三层配置确保正确生效：
+
+1. **`process.env`** — 设置当前进程的 `ANTHROPIC_MODEL`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`。
+2. **项目级 `.claude/settings.local.json`** — 将 provider 的 env 配置写入项目目录。这是**关键层**：Claude Code CLI 加载 settings 的优先级为 **项目级 > 用户级**，因此会覆盖 `~/.claude/settings.json` 中的全局默认值。
+3. **SDK `options.env`** — 每次 `query()` 调用时通过 `env` 选项传入完整环境变量（含 provider 覆盖），并用 `...process.env` 保留所有系统变量。
+
+> **注意：** 如果 `~/.claude/settings.json` 中有 `env` 配置（如设定了默认 provider），harness 生成的项目级 `.claude/settings.local.json` 会在执行期间自动覆盖它，无需手动修改全局配置。
 
 ## 项目状态
 
