@@ -136,25 +136,39 @@ export interface ProviderStateFile {
 }
 ```
 
-### 6. 环境变量传递机制
+### 6. 环境变量传递机制 (Settings 优先级)
 
-Provider 配置通过环境变量传递给 Claude Agent SDK 启动的子进程：
+Provider 配置通过 Claude Code CLI 的 settings 优先级机制传递。CLI 启动时按以下优先级加载 settings 并应用 `env`：
+
+```
+1. 项目 .claude/settings.local.json    ← 最高优先级（harness 不修改）
+2. 项目 .claude/settings.json
+3. 用户 ~/.claude/settings.local.json  ← harness 写入这里（merge 保留已有设置）
+4. 用户 ~/.claude/settings.json        ← 最低优先级
+```
+
+**四层防护确保 provider 配置生效：**
+
+1. **`process.env`** — `applyProviderConfig()` 写入当前进程，立即生效
+2. **`~/.claude/settings.local.json`** — `writeProviderToUserLocalSettings()` 写入用户级 local settings，做 merge 保留已有设置。优先级高于 `~/.claude/settings.json`，解决之前全局 settings.json 覆盖 SDK 传参的问题
+3. **SDK `options.env`** — `getProviderQueryOptions()` 每次 `query()` 都传入完整 env，兜底
+4. **项目级冲突检测** — `checkProjectLocalSettings()` 检查项目是否有 ANTHROPIC_* 配置，有则警告
 
 ```
 ProviderManager.getEnvConfig()
     → { ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_MODEL }
         │
         ▼
-applyProviderConfig() → 写入 process.env
+applyProviderConfig() → 写入 process.env (当前进程)
+writeProviderToUserLocalSettings() → 写入 ~/.claude/settings.local.json (全局生效)
         │
         ▼
-query() → SDK 启动子进程 → 子进程继承 process.env
+query() → SDK 启动子进程 → 子进程继承 options.env
         │
         ▼
-Claude CLI 读取 ANTHROPIC_* 环境变量 → 连接对应 Provider
+Claude CLI 加载 settings（优先级：项目 local > 用户 local > 用户）
+  → ~/.claude/settings.local.json 覆盖 ~/.claude/settings.json ✅
 ```
-
-启动时和切换时都会调用 `applyCurrentProvider()`，确保子进程始终使用配置文件中的 Provider。
 
 ### 7. 迁移策略
 

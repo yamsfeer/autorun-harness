@@ -8,6 +8,7 @@ vi.mock('../../src/core/provider-manager.js', () => ({
 
 vi.mock('../../src/core/error-handler.js', () => ({
   applyProviderConfig: vi.fn(),
+  writeProviderToUserLocalSettings: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { getProviderManager } from '../../src/core/provider-manager.js';
@@ -23,6 +24,11 @@ describe('providerCommand', () => {
   const mockRemoveProvider = vi.fn().mockResolvedValue(undefined);
   const mockSwitchTo = vi.fn().mockResolvedValue({ success: true });
   const mockGetConfigDir = vi.fn().mockReturnValue('/mock/config/dir');
+  const mockGetEnvConfig = vi.fn().mockReturnValue({
+    ANTHROPIC_AUTH_TOKEN: 'test-token',
+    ANTHROPIC_BASE_URL: 'https://test.com',
+    ANTHROPIC_MODEL: 'test-model',
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -33,6 +39,7 @@ describe('providerCommand', () => {
       removeProvider: mockRemoveProvider,
       switchTo: mockSwitchTo,
       getConfigDir: mockGetConfigDir,
+      getEnvConfig: mockGetEnvConfig,
     } as any);
   });
 

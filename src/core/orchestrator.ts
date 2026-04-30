@@ -14,8 +14,9 @@ import {
   shouldSwitchProvider,
   applyProviderConfig,
   formatError,
+  writeProviderToUserLocalSettings,
+  checkProjectLocalSettings,
 } from './error-handler.js';
-import fs from 'fs/promises';
 import path from 'path';
 
 /**
@@ -475,8 +476,8 @@ ${docList}
    * 应用当前提供商配置到环境变量
    * 启动时和切换提供商后都会调用
    *
-   * 同时写入项目级 .claude/settings.local.json 以覆盖用户级 ~/.claude/settings.json
-   * Claude Code CLI 的 settings 优先级：项目 local > 项目 > 用户 local > 用户
+   * 写入用户级 ~/.claude/settings.local.json（优先级高于 ~/.claude/settings.json）
+   * 同时检查项目级 settings.local.json 是否有冲突配置
    */
   private async applyCurrentProvider(): Promise<void> {
     const envConfig = this.providerManager.getEnvConfig();
@@ -487,26 +488,19 @@ ${docList}
         model: envConfig.ANTHROPIC_MODEL,
       });
 
-      // 写入项目级 .claude/settings.local.json，优先级高于 ~/.claude/settings.json
-      // 确保 provider 的 baseUrl/authToken 不被用户全局配置覆盖
+      // 写入用户级 ~/.claude/settings.local.json，做 merge 保留已有设置
       try {
-        const claudeDir = path.join(this.projectDir, '.claude');
-        await fs.mkdir(claudeDir, { recursive: true });
-        const localSettingsPath = path.join(claudeDir, 'settings.local.json');
-        const localSettings = {
-          env: {
-            ANTHROPIC_AUTH_TOKEN: envConfig.ANTHROPIC_AUTH_TOKEN,
-            ANTHROPIC_BASE_URL: envConfig.ANTHROPIC_BASE_URL,
-            ANTHROPIC_MODEL: envConfig.ANTHROPIC_MODEL,
-          },
-        };
-        await fs.writeFile(localSettingsPath, JSON.stringify(localSettings, null, 2), 'utf-8');
-        this.logger.debug('orchestrator', '已更新项目级 .claude/settings.local.json');
+        await writeProviderToUserLocalSettings(envConfig);
+        this.logger.debug('orchestrator', '已更新用户级 ~/.claude/settings.local.json');
       } catch (e) {
-        this.logger.warn('orchestrator', '无法写入项目级 .claude/settings.local.json', {
+        this.logger.warn('orchestrator', '无法写入用户级 ~/.claude/settings.local.json', {
           error: e instanceof Error ? e.message : String(e),
         });
       }
+
+      // 检查项目级 .claude/settings.local.json 是否有冲突的 ANTHROPIC_* 配置
+      // 项目级优先级最高，如果有会覆盖 harness 的设置
+      await checkProjectLocalSettings(this.projectDir);
 
       const provider = this.providerManager.getCurrentProvider();
       if (provider) {

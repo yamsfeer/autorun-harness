@@ -1,6 +1,9 @@
 import fs from 'fs/promises';
 import { getProviderManager } from '../core/provider-manager.js';
-import { applyProviderConfig } from '../core/error-handler.js';
+import {
+  applyProviderConfig,
+  writeProviderToUserLocalSettings,
+} from '../core/error-handler.js';
 
 interface ProviderCommandOptions {
   list?: boolean;
@@ -72,6 +75,17 @@ export async function providerCommand(options: ProviderCommandOptions): Promise<
         console.error(result.instructions);
       }
       process.exit(1);
+    }
+
+    // 同步到用户级 ~/.claude/settings.local.json
+    const envConfig = manager.getEnvConfig();
+    if (envConfig) {
+      applyProviderConfig({
+        authToken: envConfig.ANTHROPIC_AUTH_TOKEN,
+        baseUrl: envConfig.ANTHROPIC_BASE_URL,
+        model: envConfig.ANTHROPIC_MODEL,
+      });
+      await writeProviderToUserLocalSettings(envConfig);
     }
 
     console.log(`✅ 已切换到提供商: ${result.newProvider}`);

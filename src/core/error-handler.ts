@@ -1,3 +1,6 @@
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { AppError, ErrorType, RetryConfig } from '../types/quality.js';
 
 /**
@@ -233,6 +236,70 @@ export function applyProviderConfig(config: {
   process.env.ANTHROPIC_MODEL = config.model;
 
   console.log(`📡 已切换到提供商: ${config.model} @ ${config.baseUrl}`);
+}
+
+/**
+ * 将 provider 配置写入用户级 ~/.claude/settings.local.json
+ * 做 merge：保留已有的其他设置，只更新 ANTHROPIC_* 三个 env 变量
+ *
+ * 用户级 settings.local.json 优先级高于用户级 settings.json，
+ * 但低于项目级 settings.local.json，正好匹配需求：
+ * - 全局切换 provider → 更新用户级 local
+ * - 项目有自己的考量 → 项目级 local 最高优先，不受影响
+ */
+export async function writeProviderToUserLocalSettings(envConfig: {
+  ANTHROPIC_AUTH_TOKEN: string;
+  ANTHROPIC_BASE_URL: string;
+  ANTHROPIC_MODEL: string;
+}): Promise<void> {
+  const settingsPath = path.join(os.homedir(), '.claude', 'settings.local.json');
+  const claudeDir = path.dirname(settingsPath);
+
+  // 读取已有设置，做 merge
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await fs.readFile(settingsPath, 'utf-8');
+    existing = JSON.parse(raw);
+  } catch {
+    // 文件不存在或格式非法，从头创建
+  }
+
+  const existingEnv = (existing.env as Record<string, string>) || {};
+  const settings = {
+    ...existing,
+    env: {
+      ...existingEnv,
+      ANTHROPIC_AUTH_TOKEN: envConfig.ANTHROPIC_AUTH_TOKEN,
+      ANTHROPIC_BASE_URL: envConfig.ANTHROPIC_BASE_URL,
+      ANTHROPIC_MODEL: envConfig.ANTHROPIC_MODEL,
+    },
+  };
+
+  await fs.mkdir(claudeDir, { recursive: true });
+  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+}
+
+/**
+ * 检查项目级 .claude/settings.local.json 是否有 ANTHROPIC_* 配置会覆盖 harness 的设置
+ * 项目级优先级最高，如果有相关配置需要提醒用户
+ */
+export async function checkProjectLocalSettings(projectDir: string): Promise<void> {
+  const projectSettingsPath = path.join(projectDir, '.claude', 'settings.local.json');
+  try {
+    const raw = await fs.readFile(projectSettingsPath, 'utf-8');
+    const settings = JSON.parse(raw);
+    if (settings.env) {
+      const overrides: string[] = [];
+      if (settings.env.ANTHROPIC_AUTH_TOKEN) overrides.push('ANTHROPIC_AUTH_TOKEN');
+      if (settings.env.ANTHROPIC_BASE_URL) overrides.push('ANTHROPIC_BASE_URL');
+      if (settings.env.ANTHROPIC_MODEL) overrides.push('ANTHROPIC_MODEL');
+      if (overrides.length > 0) {
+        console.warn(`\n⚠️  项目级 ${projectSettingsPath} 设置了 ${overrides.join(', ')}，优先级最高，会覆盖 harness 的 provider 配置`);
+      }
+    }
+  } catch {
+    // 文件不存在 — 无冲突
+  }
 }
 
 /**

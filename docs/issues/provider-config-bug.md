@@ -68,31 +68,56 @@ const queryResult = query({
 
 ## 解决方案
 
-三层防护机制，确保 provider 的 model + baseUrl + authToken 作为完整套件生效：
+四层防护机制，确保 provider 的 model + baseUrl + authToken 作为完整套件生效：
 
-### 第 1 层（核心）：写入项目级 `.claude/settings.local.json`
+### 第 1 层（核心）：写入用户级 `~/.claude/settings.local.json`
 
-在 `applyCurrentProvider()` 中，将当前 provider 的完整 env 配置写入项目目录的 `.claude/settings.local.json`：
+在 `applyCurrentProvider()` 和 `provider --switch` 中，将当前 provider 的完整 env 配置写入用户级 `~/.claude/settings.local.json`，并做 merge 保留已有设置：
 
 ```typescript
-// orchestrator.ts - applyCurrentProvider()
-const claudeDir = path.join(this.projectDir, '.claude');
-await fs.mkdir(claudeDir, { recursive: true });
-const localSettings = {
+// error-handler.ts - writeProviderToUserLocalSettings()
+const settingsPath = path.join(os.homedir(), '.claude', 'settings.local.json');
+
+// 读取已有设置，做 merge
+let existing = {};
+try { existing = JSON.parse(await fs.readFile(settingsPath, 'utf-8')); } catch {}
+
+const settings = {
+  ...existing,                          // 保留用户已有的其他设置
   env: {
+    ...(existing.env || {}),            // 保留用户已有的其他 env
     ANTHROPIC_AUTH_TOKEN: envConfig.ANTHROPIC_AUTH_TOKEN,
     ANTHROPIC_BASE_URL: envConfig.ANTHROPIC_BASE_URL,
     ANTHROPIC_MODEL: envConfig.ANTHROPIC_MODEL,
   },
 };
-await fs.writeFile(
-  path.join(claudeDir, 'settings.local.json'),
-  JSON.stringify(localSettings, null, 2),
-  'utf-8'
-);
+await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
 ```
 
-由于项目级 `settings.local.json` 优先级**高于**用户级 `settings.json`，CLI 子进程启动后会使用 harness 写入的配置，覆盖用户的全局 DeepSeek 配置。
+**选择用户级而非项目级的原因：**
+
+`provider --switch` 是全局命令（不限定某个项目），写用户级 `~/.claude/settings.local.json` 可以一次切换影响所有项目。优先级链：
+
+```
+1. 项目 .claude/settings.local.json   ← 最高（不碰，用户可能有自己的考量）
+2. 项目 .claude/settings.json
+3. 用户 ~/.claude/settings.local.json ← 写这里，高于 ~/.claude/settings.json
+4. 用户 ~/.claude/settings.json       ← 之前覆盖 SDK 传参的元凶
+```
+
+用户级 `settings.local.json` 优先级高于用户级 `settings.json`，足以覆盖全局默认配置。如果项目级有 `ANTHROPIC_*` 配置，会打印警告提醒用户，但不会去修改项目文件。
+
+### 项目级冲突检测
+
+`applyCurrentProvider()` 会检查项目级 `.claude/settings.local.json` 是否设置了 `ANTHROPIC_*`：
+
+```typescript
+// error-handler.ts - checkProjectLocalSettings()
+const projectSettings = JSON.parse(await fs.readFile(projectClaudeDir + '/settings.local.json', 'utf-8'));
+if (projectSettings.env?.ANTHROPIC_BASE_URL || projectSettings.env?.ANTHROPIC_MODEL ...) {
+  console.warn('⚠️ 项目级 settings.local.json 设置了 ANTHROPIC_*，优先级最高，会覆盖 harness 的 provider 配置');
+}
+```
 
 ### 第 2 层：`query()` options 中传入完整 provider 配置
 
@@ -131,11 +156,11 @@ process.env.ANTHROPIC_MODEL = config.model;
 ### 完整流程
 
 ```
-provider 切换时：
+provider 切换时 (provider --switch 或 run 中自动切换)：
   applyCurrentProvider()
-    ├── 1. 写 process.env.ANTHROPIC_*        ← 当前进程生效
-    ├── 2. 写 .claude/settings.local.json    ← CLI 子进程 settings 最高优先级
-    └── 3. getProviderQueryOptions() 传 env  ← 兜底，确保子进程 env 正确
+    ├── 1. 写 process.env.ANTHROPIC_*              ← 当前进程生效
+    ├── 2. 写 ~/.claude/settings.local.json (merge) ← 全局生效，覆盖 ~/.claude/settings.json
+    └── 3. 检查项目级 settings.local.json 冲突     ← 有冲突则警告
 
 query() 调用时：
   options: {
@@ -145,25 +170,27 @@ query() 调用时：
 
 CLI 子进程启动时：
   1. 继承 options.env 的环境变量
-  2. 读 .claude/settings.local.json → 覆盖 settings.json 的配置 ✅
+  2. 读 ~/.claude/settings.local.json → 覆盖 ~/.claude/settings.json 的配置 ✅
+  （如果项目有 .claude/settings.local.json → 最高优先级，会覆盖用户级配置 → ⚠️ 警告用户）
 ```
 
 ## 影响范围
 
-- `src/core/orchestrator.ts` — 修改 `applyCurrentProvider()`、新增 `getProviderQueryOptions()`、修改两处 `query()` 调用
+- `src/core/error-handler.ts` — 新增 `writeProviderToUserLocalSettings()`、`checkProjectLocalSettings()`
+- `src/core/orchestrator.ts` — 修改 `applyCurrentProvider()` 写入用户级 settings、检查项目级冲突；新增 `getProviderQueryOptions()`
 - `src/core/evaluator.ts` — 在 `query()` 调用中传入完整 provider 配置
+- `src/commands/provider.ts` — `--switch` 时也写入 `~/.claude/settings.local.json`
 
 ## 验证方法
 
 ```bash
-# 运行 provider 配置测试
-node test_provider_config.mjs
+# 1. 单元测试
+npx vitest run
+
+# 2. provider --switch 写入 ~/.claude/settings.local.json
+node dist/index.js provider --switch <provider-name>
+cat ~/.claude/settings.local.json  # 验证 ANTHROPIC_* 已更新
+
+# 3. merge 行为：已有其他设置不受影响
+# 4. 项目级冲突警告：在项目中创建 .claude/settings.local.json 带 ANTHROPIC_* 字段
 ```
-
-测试结果（3/3 通过）：
-
-| 配置方式 | 预期模型 | 实际模型 | 结果 |
-|----------|----------|----------|------|
-| DeepSeek via settings.local.json + model | deepseek-v4-pro | deepseek-v4-pro | ✅ |
-| GLM via settings.local.json + model | glm-5.1 | glm-5.1 | ✅ |
-| GLM via settings.local.json only | glm-5.1 | glm-5.1 | ✅ |
